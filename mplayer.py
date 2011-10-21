@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/10/22 00:32:53>
+# Time-stamp: <subi 2011/10/22 01:00:47>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -162,6 +162,7 @@ class Media:
         print
 
     def __init__(self,info):
+        print info
         b = {}
         for l in info.splitlines():
             a = l.split('=')
@@ -172,8 +173,8 @@ class Media:
             return
             
         self.name = b["ID_FILENAME"]
-        self.seekable = bool(b["ID_SEEKABLE"])
-
+        self.seekable = (b["ID_SEEKABLE"] == 1)
+        
         if "ID_VIDEO_ID" in b:
             self.is_video = True
 
@@ -181,8 +182,9 @@ class Media:
             self.height = int(b["ID_VIDEO_HEIGHT"])
             if "ID_VIDEO_ASPECT" in b:
                 self.aspect = Fraction(b["ID_VIDEO_ASPECT"])
-            else:
-                self.aspect = Fraction(self.width,self.height)
+
+            if self.aspect == 0:
+                self.aspect =  Fraction(self.width,self.height)
 
             # fix video width for non-square pixel, i.e. w/h != aspect
             # or the video expanding will not work
@@ -217,7 +219,7 @@ def expand_video(media, expand_method = "ass", target_aspect = Fraction(4,3)):
         media2screen = media.aspect / target_aspect
         
         args += " -ass -embeddedfonts"
-        args += " -ass-font-scale {0}".format(1.6*media2screen)
+        args += " -ass-font-scale {0}".format(1.4*media2screen)
                 
         margin = (media2screen - 1) * media.height / 2
         if margin > 0:
@@ -225,7 +227,7 @@ def expand_video(media, expand_method = "ass", target_aspect = Fraction(4,3)):
             args += " -ass-force-style "
             args += "PlayResX={0},PlayResY={1}".format(PlayResX,PlayResY)
             args += ",ScaleX={0},ScaleY=1".format(1/float(media2screen))
-            args += ",MarginV={0}".format(float((margin-90) * PlayResY/(media.width/media.aspect)))
+            args += ",MarginV={0}".format(float((margin-70) * PlayResY/(media.width/media.aspect)))
     else:
         args += " -noass -vf-pre expand={0}::::1:{1}".format(media.width,target_aspect)
     return args.split()
@@ -240,9 +242,9 @@ class Launcher:
             print
             for f in self.__meta.files:
                 m = Media(mplayer.identify([f]))
+                if m.is_video:
+                    args = expand_video(m, self.__meta.expand, self.__meta.saspect)
                 if m.exist:
-                    if m.is_video:
-                        args = expand_video(m, self.__meta.expand, self.__meta.saspect)
                     mplayer.play(args + self.__meta.opts, [f])
                 
     class Meta:

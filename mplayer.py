@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/10/21 13:29:23>
+# Time-stamp: <subi 2011/10/21 19:51:30>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -23,7 +23,9 @@
 # USA
 
 import os,sys
+import math
 from subprocess import *
+from fractions import Fraction
 
 def which(program):
     """Mimic the shell command "which".
@@ -59,7 +61,7 @@ def check_dimension():
     return dim
 
 class MPlayer:
-    """mplayer execution delegation class.
+    """mplayer execution envirionment and delegation.
 
     Usage:
     MPlayer mp;
@@ -67,7 +69,6 @@ class MPlayer:
     mp.identify("my.avi");
     mp("my.avi");
     """
-    
     # TODO: "not compiled in option"
     def check_opt(self, opt):
         if len(self.__opts) == 0:
@@ -80,18 +81,23 @@ class MPlayer:
         return [support, take_param]
 
     def identify(self,fl=[]):
-        import shlex
-        p = self("-vo null -ao null -frames 0 -identify".split() + fl)
-        args2 = shlex.split(""" sed -ne '/^ID_.*=/ {s/[]()|&;<>`'"'"'\\!$" []/\\&/g;p}' """)
-        p2 = Popen(args2, stdin = p.stdout, stdout = PIPE)
+        p = self(self.__identify_args + fl)
+        p2 = Popen(self.__grep, stdin = p.stdout, stdout = PIPE)
         return p2.communicate()[0]
 
+    def play(self,args=[],f=[]):
+        print ' '.join(args)
+        self(args + f).communicate();
+    
     def __call__(self,args=[]):
         return Popen([self.__path] + args, stdout = PIPE)
             
     # internal
     __path = ""
     __opts = {}
+    __identify_args = "-vo null -ao null -frames 0 -identify".split()
+    __grep = """grep ^ID_.*= """.split()
+    
     def __init__(self):
         self.__probe_mplayer()
 
@@ -109,7 +115,6 @@ class MPlayer:
                 continue
             if s[len(s)-1] == "Yes" or s[len(s)-1] == "No":
                 opt = s[0].split(":") # take care of option:suboption
-#                key = "-" + opt[0]
                 if opt[0] in self.__opts:
                     continue
                 if len(opt) == 2:
@@ -119,7 +124,8 @@ class MPlayer:
                 else:
                     take_param = False
                 self.__opts[opt[0]] = take_param
-        # handel vf* af*
+        # handle vf* af*: mplayer reports option name as vf*, while it
+        # is a family of options.
         del self.__opts['af*']
         del self.__opts['vf*']
         for extra in ["af","af-adv","af-add","af-pre","af-del","vf","vf-add","vf-pre","vf-del"]:
@@ -128,33 +134,70 @@ class MPlayer:
             self.__opts[extra] = False
 
 class Media:
-    """Media metadata and corresponding mplayer params.
+    """Construct media metadata by the result of midentify; may apply some "proper" fixes
     """
+    exist = True
+    
+    name = ""
+    seekable = True
+
+    is_video = False
     width = 0
     height = 0
-    aspect = 0
+    aspect = 0.0
+    sub_demux = False
+    sub_file = "none"
+    
+    def info(self):
+        print "Media info begin ==============================="
+        print "  Media: ",                   self.name
+        print "  Seekable: ",                self.seekable
+        print "  Has video: ",               self.is_video
+        if self.is_video:
+            print "    Dimension: ",         "{0.width}x{0.height}".format(self)
+            print "    Aspect ratio: ",      self.aspect
+            print "    Embedded subtitle: ", self.sub_demux
+            print "    Exernal subtitle: ",  self.sub_file
+        print "Media info end ==============================="
+        print
 
-    __meta = {}
-    __opts = []
     def __init__(self,info):
+        b = {}
         for l in info.splitlines():
             a = l.split('=')
-            self.__meta[a[0]] = a[1]
-        self.width = int(self.__meta["ID_VIDEO_WIDTH"])
-        self.height = int(self.__meta["ID_VIDEO_HEIGHT"])
-        self.aspect = float(self.__meta["ID_VIDEO_ASPECT"])
-        # if (( video_aspect < 1.333 )), force 4:3
-        if self.width/self.height < 4/3 :
-            self.__suggested_expand = "dsize"
-        self.__expand_video()
+            b[a[0]] = a[1]
 
-    def __expand_video(self):
-        # fix ID_VIDEO_WIDTH of non-square pixel, i.e.
-        # if width != height * aspect, let width = height * aspect
-        if abs(self.width - self.height * self.aspect > 10):
-            self.width = self.height * self.aspect
-#        "-ass -embeddedfonts"
-        
+        if not "ID_FILENAME" in b:
+            self.exist = False;
+            return
+            
+        self.name = b["ID_FILENAME"]
+        self.seekable = bool(b["ID_SEEKABLE"])
+
+        if "ID_VIDEO_ID" in b:
+            self.is_video = True
+
+            self.width = int(b["ID_VIDEO_WIDTH"])
+            self.height = int(b["ID_VIDEO_HEIGHT"])
+            if "ID_VIDEO_ASPECT" in b:
+                self.aspect = float(b["ID_VIDEO_ASPECT"])
+
+            # fix ID_VIDEO_WIDTH value for non-square pixel, i.e.
+            # if width != height * aspect, force width = height * aspect
+            # when the aspect value is valid
+            if self.aspect!=0 and abs(self.width / self.height - self.aspect > 0.1):
+                self.width = int(self.height * self.aspect)
+
+            if "ID_SUBTITLE_ID" in b:
+                self.sub_demux = True
+
+            if "ID_FILE_SUB_ID" in b:
+                self.sub_file = "text"
+
+            if "ID_VOBSUB_ID" in b:
+                self.sub_file = "vobsub"
+        self.info()
+
 class Launcher:
     """Command line parser and executor.
     """
@@ -165,39 +208,58 @@ class Launcher:
             print
             for f in self.__meta.files:
                 m = Media(self.__mplayer.identify([f]))
+                if m.exist:
+                    args = self.__expand_video(m)
+                    self.__mplayer.play(args + self.__meta.opts, [f])
                 
     class Meta:
+        # features
         debug = False
         role = "player"
         expand = "ass"
         resume = True
-        dim = None
+        continuous = True
+        # meta-info
+        swidth = 0
+        sheight = 0
+        saspect = Fraction()
         opts = []
         invalid_opts = []
         left_opts = []
         files = []
-        continuous = True
         def info(self):
-            print "Extra info begin ==============================="
-            print "  Role: ",self.role
-            print "  Unpassed options: ",self.left_opts
-            print "  Bypassed options: ",self.opts
-            print "  Invalid options: ",self.invalid_opts
-            print "  Screen dimension: ",self.dim
-            print "  Play list: ",self.files
-            print "Extra info end ================================="
-            print
+            print "==== Launcher info begin ===="
+            print "  Role: ",                 self.role
+            if self.role == "player":
+                print "  Command line options: "
+                if len(self.left_opts) > 0:
+                    print "    Unpassed: ",   ' '.join(self.left_opts)
+                if len(self.opts) > 0:
+                    print "    Bypassed:",    ' '.join(self.opts)
+                if len(self.invalid_opts) > 0:
+                    print "    Discarded: ",  ' '.join(self.invalid_opts)
+                if len(self.files) > 0:
+                    print "  Play list: "
+                    for f in self.files:
+                        print "    ",f
+                print "  Sreen dimension: ",              "{0.swidth}x{0.sheight}".format(self)
+                print "  Sreen aspect: ",                 "{0.numerator}:{0.denominator}".format(self.saspect)
+                print "  Global expanding method: ",      self.expand
+                print "  Resume last played position: ",  self.resume
+                print "  Automatic continuous play: ",    self.continuous
+            print "==== Launcher info end ===="
 
     __meta = Meta()
     __mplayer = None
 
-    def __init__(self,player=MPlayer):
+    def __init__(self,player=MPlayer()):
         self.__mplayer = player
         self.__check_action()
         self.__meta.left_opts = sys.argv
         if self.__meta.role != "identifier":
+            [self.__meta.swidth,self.__meta.sheight] = check_dimension()
+            self.__meta.saspect = Fraction(self.__meta.swidth,self.__meta.sheight)
             self.__parse_args()
-            self.__meta.dim = check_dimension()
         self.__meta.info()
             
     def __check_action(self):
@@ -223,7 +285,7 @@ class Launcher:
                     if f[1] == True and len(self.__meta.left_opts)>0:
                         self.__meta.opts.append(self.__meta.left_opts.pop(0))
                 else:
-                    print "The option '{0}' is not supported by mplayer. Silently ignore it.".format(a)
+                    # option not supported by mplayer, silently ignore it
                     self.__meta.invalid_opts.append(a)
             else:
                 self.__meta.files.append(a)
@@ -231,6 +293,42 @@ class Launcher:
         if len(self.__meta.files) != 1:
             self.__meta.continuous = False
 
-player = MPlayer()
+    def __expand_video(self,m):
+        if m.is_video:
+            # video height will probably be modified, so scale
+            # to video width
+            args = "-subfont-autoscale 2"
+            
+            # ratio of video width to 800
+            ratio_to_800 = m.width / 800.0
+            # assummed height that contains just 2 lines of subtitles
+            sub_height_800 = 60
+            # assummed scale factor
+            sub_scale_800 = 2
 
-Launcher(player).run()
+            # empiric formula
+            sub_height = int(sub_height_800 * ratio_to_800)
+            sub_scale = sub_scale_800 / math.sqrt(ratio_to_800)
+            
+            if self.__meta.expand == "none":
+                args = ""
+            elif m.width/m.height < 4/3 :
+                args = "-vf-pre dsize=4/3"
+            elif self.__meta.expand == "ass":
+                args += " -ass -embeddedfonts -ass-font-scale {0}".format(sub_scale)
+                
+                margin = int((m.aspect/self.__meta.saspect - 1) * m.height / 2)
+
+                # won't bother when don't need expanding
+                if margin > 0:
+                    if sub_height > margin:
+                        sub_height = margin
+                    args += " -vf-pre expand=0:-{0}:0:{1}::".format(sub_height, sub_height)
+                    args += " -ass-use-margins -ass-bottom-margin {0}".format(sub_height)
+            else:
+                args += " -noass -vf-pre expand={0}::::1:{1}".format(m.width,self.__meta.saspect)
+                
+#        "-ass -embeddedfonts"
+        return args.split()
+
+Launcher().run()

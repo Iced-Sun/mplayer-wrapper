@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/10/21 19:51:30>
+# Time-stamp: <subi 2011/10/22 00:32:53>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -155,7 +155,7 @@ class Media:
         print "  Has video: ",               self.is_video
         if self.is_video:
             print "    Dimension: ",         "{0.width}x{0.height}".format(self)
-            print "    Aspect ratio: ",      self.aspect
+            print "    Aspect: ",            float(self.aspect)
             print "    Embedded subtitle: ", self.sub_demux
             print "    Exernal subtitle: ",  self.sub_file
         print "Media info end ==============================="
@@ -180,14 +180,15 @@ class Media:
             self.width = int(b["ID_VIDEO_WIDTH"])
             self.height = int(b["ID_VIDEO_HEIGHT"])
             if "ID_VIDEO_ASPECT" in b:
-                self.aspect = float(b["ID_VIDEO_ASPECT"])
+                self.aspect = Fraction(b["ID_VIDEO_ASPECT"])
+            else:
+                self.aspect = Fraction(self.width,self.height)
 
-            # fix ID_VIDEO_WIDTH value for non-square pixel, i.e.
-            # if width != height * aspect, force width = height * aspect
-            # when the aspect value is valid
-            if self.aspect!=0 and abs(self.width / self.height - self.aspect > 0.1):
-                self.width = int(self.height * self.aspect)
-
+            # fix video width for non-square pixel, i.e. w/h != aspect
+            # or the video expanding will not work
+            if self.aspect != 0 and abs(Fraction(self.width,self.height) - self.aspect) > 0.1:
+                self.width = int(round(self.height * self.aspect))
+                
             if "ID_SUBTITLE_ID" in b:
                 self.sub_demux = True
 
@@ -198,19 +199,51 @@ class Media:
                 self.sub_file = "vobsub"
         self.info()
 
+def expand_video(media, expand_method = "ass", target_aspect = Fraction(4,3)):
+    # scale to video width which is never been touched
+    args = "-subfont-autoscale 2"
+
+    if expand_method == "none":
+        args = ""
+    elif media.width/media.height < Fraction(4,3) :
+        args = "-vf-pre dsize=4/3"
+    elif expand_method == "ass": # ass is a total mess
+        # 3 aspects: video, screen, and PlayResX:PlayResY
+        # mplayer use PlayResX = 336 as default, so do we
+        PlayResX = 336
+        PlayResY = 252
+        ass_aspect = Fraction(PlayResX,PlayResY)
+
+        media2screen = media.aspect / target_aspect
+        
+        args += " -ass -embeddedfonts"
+        args += " -ass-font-scale {0}".format(1.6*media2screen)
+                
+        margin = (media2screen - 1) * media.height / 2
+        if margin > 0:
+            args += " -ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin))
+            args += " -ass-force-style "
+            args += "PlayResX={0},PlayResY={1}".format(PlayResX,PlayResY)
+            args += ",ScaleX={0},ScaleY=1".format(1/float(media2screen))
+            args += ",MarginV={0}".format(float((margin-90) * PlayResY/(media.width/media.aspect)))
+    else:
+        args += " -noass -vf-pre expand={0}::::1:{1}".format(media.width,target_aspect)
+    return args.split()
+
 class Launcher:
     """Command line parser and executor.
     """
     def run(self):
         if self.__meta.role == "identifier":
-            print self.__mplayer.identify(self.__meta.left_opts)
+            print mplayer.identify(self.__meta.left_opts)
         else:
             print
             for f in self.__meta.files:
-                m = Media(self.__mplayer.identify([f]))
+                m = Media(mplayer.identify([f]))
                 if m.exist:
-                    args = self.__expand_video(m)
-                    self.__mplayer.play(args + self.__meta.opts, [f])
+                    if m.is_video:
+                        args = expand_video(m, self.__meta.expand, self.__meta.saspect)
+                    mplayer.play(args + self.__meta.opts, [f])
                 
     class Meta:
         # features
@@ -250,10 +283,8 @@ class Launcher:
             print "==== Launcher info end ===="
 
     __meta = Meta()
-    __mplayer = None
 
-    def __init__(self,player=MPlayer()):
-        self.__mplayer = player
+    def __init__(self):
         self.__check_action()
         self.__meta.left_opts = sys.argv
         if self.__meta.role != "identifier":
@@ -279,7 +310,7 @@ class Launcher:
                 self.__meta.files += self.__meta.left_opts
                 self.__meta.left_opts = []
             elif a[0] == "-":
-                f = self.__mplayer.check_opt(a.split('-',1)[1])
+                f = mplayer.check_opt(a.split('-',1)[1])
                 if f[0] == True:
                     self.__meta.opts.append(a)
                     if f[1] == True and len(self.__meta.left_opts)>0:
@@ -293,42 +324,7 @@ class Launcher:
         if len(self.__meta.files) != 1:
             self.__meta.continuous = False
 
-    def __expand_video(self,m):
-        if m.is_video:
-            # video height will probably be modified, so scale
-            # to video width
-            args = "-subfont-autoscale 2"
-            
-            # ratio of video width to 800
-            ratio_to_800 = m.width / 800.0
-            # assummed height that contains just 2 lines of subtitles
-            sub_height_800 = 60
-            # assummed scale factor
-            sub_scale_800 = 2
+# main
 
-            # empiric formula
-            sub_height = int(sub_height_800 * ratio_to_800)
-            sub_scale = sub_scale_800 / math.sqrt(ratio_to_800)
-            
-            if self.__meta.expand == "none":
-                args = ""
-            elif m.width/m.height < 4/3 :
-                args = "-vf-pre dsize=4/3"
-            elif self.__meta.expand == "ass":
-                args += " -ass -embeddedfonts -ass-font-scale {0}".format(sub_scale)
-                
-                margin = int((m.aspect/self.__meta.saspect - 1) * m.height / 2)
-
-                # won't bother when don't need expanding
-                if margin > 0:
-                    if sub_height > margin:
-                        sub_height = margin
-                    args += " -vf-pre expand=0:-{0}:0:{1}::".format(sub_height, sub_height)
-                    args += " -ass-use-margins -ass-bottom-margin {0}".format(sub_height)
-            else:
-                args += " -noass -vf-pre expand={0}::::1:{1}".format(m.width,self.__meta.saspect)
-                
-#        "-ass -embeddedfonts"
-        return args.split()
-
+mplayer = MPlayer()
 Launcher().run()

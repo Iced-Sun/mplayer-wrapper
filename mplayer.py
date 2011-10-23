@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/10/22 02:22:22>
+# Time-stamp: <subi 2011/10/23 12:34:23>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -92,9 +92,10 @@ class MPlayer:
             print ' '.join([self.__path]+args+f)
         else:
             p = self(args + f)
-            p2 = Popen(['cat'], stdin = p.stdout, stdout = sys.stdout)
-            p2.communicate()
-    
+            while p.poll() == None:
+                o = p.stdout.readline()
+                sys.stdout.write(o)
+   
     def __call__(self,args=[], suppress_stderr = False):
         if suppress_stderr:
             return Popen([self.__path] + args, stdout = PIPE, stderr = PIPE)

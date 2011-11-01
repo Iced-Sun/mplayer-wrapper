@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/01 19:38:33>
+# Time-stamp: <subi 2011/11/01 20:27:59>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -118,7 +118,7 @@ def fetch_subtitle(m):
 
     data = ""
     for item in [
-        ["pathinfo", os.path.join("c:/",m.dirname,m.basename).encode("UTF-8")],
+        ["pathinfo", os.path.join("c:/",m.dirname,m.basename)],
         ["filehash", m.shooter_hash_string],
         ["lang", "chn"]
         ]:
@@ -132,10 +132,11 @@ Content-Disposition: form-data; name="{1}"
     req.add_data(data)
 
     if debug:
-        print "==== Post Data Begin ===="
+        print 
+        print "==== Will post data ===="
         print req.get_full_url()
         print req.get_data()
-        print "==== Post Data End ===="
+        return subtitles
 
     response = urllib2.urlopen(req)
 
@@ -281,6 +282,7 @@ class Media:
     shooter_hash_string = ""
     
     def info(self):
+        print
         print "==== Media info begin ===="
         print "  Media: ",                   self.name
         print "    Fullpath: ",              self.fullpath
@@ -381,13 +383,16 @@ class Launcher:
                     t_mplayer = threading.Thread(target=mplayer.play, args=(args+self.__meta.opts,[f]))
                     t_mplayer.start()
 
-                    import time
-                    sleep_time = 0
-                    while t_mplayer.is_alive() and sleep_time < 5:
-                        time.sleep(0.05)
-                        sleep_time += 0.05
-                    if sleep_time >= 5:
+                    if debug:
                         fetch_subtitle(m)
+                    else:
+                        import time
+                        sleep_time = 0
+                        while t_mplayer.is_alive() and sleep_time < 5:
+                            time.sleep(0.05)
+                            sleep_time += 0.05
+                        if sleep_time >= 5:
+                            fetch_subtitle(m)
                 
     class Meta:
         # features

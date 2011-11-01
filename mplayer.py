@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/10/23 12:34:23>
+# Time-stamp: <subi 2011/11/01 18:42:21>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -61,6 +61,44 @@ def check_dimension():
         dim[2] = Fraction(dim[0],dim[1])
     return dim
 
+def expand_video(m, expand_method = "ass", target_aspect = Fraction(4,3)):
+    # scale to video width which is never been touched
+    args = "-subfont-autoscale 2"
+
+    if expand_method == "none":
+        args = ""
+    elif m.scaled_dimension[2] < Fraction(4,3) :
+        args = "-vf-pre dsize=4/3"
+    elif expand_method == "ass":
+        # ass is total mess
+        # 3 aspects: video, screen, and PlayResX:PlayResY
+        # mplayer use PlayResX = 336 as default, so do we
+        ass_dim = [336,252,Fraction(336,252)]
+
+        # basic scale factor
+        m2t = m.scaled_dimension[2] / target_aspect
+
+        # base opts
+        args += " -ass -embeddedfonts"
+        args += " -ass-font-scale {0}".format(1.4*m2t)
+
+        # margin opts
+        margin = (m2t - 1) * m.scaled_dimension[1] / 2
+        if margin > 0:
+            args += " -ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin))
+            args += " -ass-force-style "
+            args += "PlayResX={0[0]},PlayResY={0[1]}".format(ass_dim)
+            args += ",ScaleX={0},ScaleY=1".format(1/float(m2t))
+            # put the subtitle as close to video picture as possible
+            offset = margin-70
+            if offset < 0:
+                offset = 0
+            args += ",MarginV={0}".format(float(offset*ass_dim[1]/(m.scaled_dimension[0]/m.scaled_dimension[2])))
+    else:
+        # -vf expand does its own non-square pixel adjustment
+        args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],target_aspect)
+    return args.split()
+
 class MPlayer:
     """mplayer execution envirionment and delegation.
 
@@ -97,10 +135,11 @@ class MPlayer:
                 sys.stdout.write(o)
    
     def __call__(self,args=[], suppress_stderr = False):
+        
         if suppress_stderr:
-            return Popen([self.__path] + args, stdout = PIPE, stderr = PIPE)
+            return Popen([self.__path] + args, stdin = sys.stdin, stdout = PIPE, stderr = PIPE)
         else:
-            return Popen([self.__path] + args, stdout = PIPE, stderr = None)
+            return Popen([self.__path] + args, stdin = sys.stdin, stdout = PIPE, stderr = None)
             
     # internal
     __path = ""
@@ -147,109 +186,183 @@ class Media:
     """Construct media metadata by the result of midentify; may apply some "proper" fixes
     """
     exist = True
-    
+
     name = ""
+    fullpath = ""
+    basename = ""
+    dirname = ""
+    
     seekable = True
     is_video = False
 
-    ori_dim = [0,0,Fraction(0)]
-    dim = [0,0,Fraction(0)]
-    sub_demux = False
-    sub_file = "none"
+    original_dimension = [0,0,Fraction(0)]
+    scaled_dimension = [0,0,Fraction(0)]
+
+    subtitle_had = "none"
+
+    shooter_hash_string = ""
     
     def info(self):
         print "==== Media info begin ===="
         print "  Media: ",                   self.name
+        print "    Fullpath: ",              self.fullpath
+        print "    Base name: ",             self.basename
+        print "    Dir name: ",              self.dirname
         print "  Seekable: ",                self.seekable
         print "  Has video: ",               self.is_video
         if self.is_video:
-            print "    Dimension: ",         "{0[0]}x{0[1]}".format(self.dim)
-            print "    Aspect: ",            float(self.dim[2])
-            print "    Embedded subtitle: ", self.sub_demux
-            print "    Exernal subtitle: ",  self.sub_file
-        print "==== Media info end ===="
+            print "    Dimension: ",         "{0[0]}x{0[1]}".format(self.scaled_dimension)
+            print "    Aspect: ",            float(self.scaled_dimension[2])
+            print "    Subtitles: ",         self.subtitle_had
+            print "    File hash: ",         self.shooter_hash_string
+            print "    Subtitles: ",         self.subtitle_had
+        print "====  Media info end  ===="
         print
 
-    def __init__(self,info):
-        b = {}
-        for l in info.splitlines():
+    def __init__(self,info_input):
+        """Parse the output by midentify.
+        """
+        info = {}
+        for l in info_input.splitlines():
             a = l.split('=')
-            b[a[0]] = a[1]
+            info[a[0]] = a[1]
 
-        if not "ID_FILENAME" in b:
+        if not "ID_FILENAME" in info:
             self.exist = False;
             return
-            
-        self.name = b["ID_FILENAME"]
-        self.seekable = (b["ID_SEEKABLE"] == "1")
+
+        self.__gen_meta_info(info)
         
-        if "ID_VIDEO_ID" in b:
-            self.is_video = True
+        if self.is_video:
+            self.__gen_video_info(info)
+            self.__gen_subtitle_info(info)
+            self.__gen_shooter_info(info)
 
-            self.ori_dim[0] = int(b["ID_VIDEO_WIDTH"])
-            self.ori_dim[1] = int(b["ID_VIDEO_HEIGHT"])
-            if "ID_VIDEO_ASPECT" in b:
-                self.ori_dim[2] = Fraction(b["ID_VIDEO_ASPECT"])
-            self.dim = self.ori_dim[:]
-
-            # amend the dim params
-            if self.dim[2] == 0:
-                self.dim[2] =  Fraction(self.dim[0],self.dim[1])
-
-            # fix video width for non-square pixel, i.e. w/h != aspect
-            # or the video expanding will not work
-            if abs(Fraction(self.dim[0],self.dim[1]) - self.dim[2]) > 0.1:
-                self.dim[0] = int(round(self.dim[1] * self.dim[2]))
-
-            if "ID_SUBTITLE_ID" in b:
-                self.sub_demux = True
-
-            if "ID_FILE_SUB_ID" in b:
-                self.sub_file = "srt/ass/ssa"
-
-            if "ID_VOBSUB_ID" in b:
-                self.sub_file = "vobsub"
-                
         if debug:
             self.info()
 
-def expand_video(m, expand_method = "ass", target_aspect = Fraction(4,3)):
-    # scale to video width which is never been touched
-    args = "-subfont-autoscale 2"
+    def __gen_meta_info(self,info):
+        self.name = info["ID_FILENAME"]
+        
+        self.fullpath = os.path.realpath(self.name)
+        self.basename = os.path.basename(self.fullpath)
+        self.dirname = os.path.basename(os.path.dirname(self.fullpath))
+        
+        self.seekable = (info["ID_SEEKABLE"] == "1")
+        if "ID_VIDEO_ID" in info:
+            self.is_video = True
+        else:
+            self.is_video = False
+        
+    def __gen_video_info(self,info):
+        self.original_dimension[0] = int(info["ID_VIDEO_WIDTH"])
+        self.original_dimension[1] = int(info["ID_VIDEO_HEIGHT"])
+        if "ID_VIDEO_ASPECT" in info:
+            self.original_dimension[2] = Fraction(info["ID_VIDEO_ASPECT"])
+        self.scaled_dimension = self.original_dimension[:]
 
-    if expand_method == "none":
-        args = ""
-    elif m.dim[2] < Fraction(4,3) :
-        args = "-vf-pre dsize=4/3"
-    elif expand_method == "ass": # ass is a total mess
-        # 3 aspects: video, screen, and PlayResX:PlayResY
-        # mplayer use PlayResX = 336 as default, so do we
-        ass_dim = [336,252,Fraction(336,252)]
+        # amend the dim params
+        if self.scaled_dimension[2] == 0:
+            self.scaled_dimension[2] =  Fraction(self.scaled_dimension[0],self.scaled_dimension[1])
 
-        # basic scale factor
-        m2t = m.dim[2] / target_aspect
+        # fix video width for non-square pixel, i.e. w/h != aspect
+        # or the video expanding will not work
+        if abs(Fraction(self.scaled_dimension[0],self.scaled_dimension[1]) - self.scaled_dimension[2]) > 0.1:
+            self.scaled_dimension[0] = int(round(self.scaled_dimension[1] * self.scaled_dimension[2]))
+    def __gen_subtitle_info(self,info):
+        if "ID_SUBTITLE_ID" in info:
+            self.subtitle_had = "embedded text"
 
-        # base opts
-        args += " -ass -embeddedfonts"
-        args += " -ass-font-scale {0}".format(1.4*m2t)
+        if "ID_FILE_SUB_ID" in info:
+            self.subtitle_had = "external text"
 
-        # margin opts
-        margin = (m2t - 1) * m.dim[1] / 2
-        if margin > 0:
-            args += " -ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin))
-            args += " -ass-force-style "
-            args += "PlayResX={0[0]},PlayResY={0[1]}".format(ass_dim)
-            args += ",ScaleX={0},ScaleY=1".format(1/float(m2t))
-            # put the subtitle as close to video picture as possible
-            offset = margin-70
-            if offset < 0:
-                offset = 0
-            args += ",MarginV={0}".format(float(offset*ass_dim[1]/(m.dim[0]/m.dim[2])))
-    else:
-        # -vf expand does its own non-square pixel adjustment
-        args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.ori_dim[0],target_aspect)
-    return args.split()
+        if "ID_VOBSUB_ID" in info:
+            self.subtitle_had = "external vobsub"
+    def __gen_shooter_info(self,info):
+        sz = os.path.getsize(self.fullpath)
+        if sz>8192:
+            import hashlib
+            f = open(self.fullpath, 'rb')
+            self.shooter_hash_string = ';'.join(map(lambda s: (f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1], (lambda l:[4096, l/3*2, l/3, l-8192])(sz)))
+            f.close()
 
+class SubFetcher:
+    """
+    Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
+    """
+    subtitles = []
+    
+    def __init__(self, m):
+        import random, urllib2
+
+        post_boundary = "----------------------------{0:x}".format(random.getrandbits(48))
+
+        req = urllib2.Request("{0}://{1}.shooter.cn/api/subapi.php".format(
+                random.choice(["http","https"]),
+                random.choice(["www", "svlayer", "splayer1", "splayer2", "splayer3", "splayer4", "splayer5"])))
+        req.add_header("User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543)))
+        req.add_header("Content-Type", "multipart/form-data; boundary={0}".format(post_boundary))
+
+        data = ""
+        for item in [
+            ["pathinfo", os.path.join("c:/",m.dirname,m.basename).encode("UTF-8")],
+            ["filehash", m.shooter_hash_string],
+            ["lang", "chn"]
+        ]:
+            data += """--{0}
+Content-Disposition: form-data; name="{1}"
+
+{2}
+""".format(post_boundary, item[0], item[1])
+
+        data = data + "--" + post_boundary + "--"
+        req.add_data(data)
+
+        if debug:
+            print "==== Post Data Begin ===="
+            print req.get_full_url()
+            print req.get_data()
+            print "==== Post Data End ===="
+
+        response = urllib2.urlopen(req)
+        self.__parse_responce(response)
+        
+    def __parse_responce(self, response):
+        import struct
+        from cStringIO import StringIO
+
+        c = response.read(1)
+        package_count = struct.unpack("!b", c)[0]
+
+        if debug:
+            print "  {0} subtitle packages".format(package_count)
+
+        for dumb_i in range(package_count):
+            c = response.read(8)
+            package_length, desc_length = struct.unpack("!II", c)
+            description = response.read(desc_length).decode("UTF-8")
+            
+            c = response.read(5)
+            package_length, file_count = struct.unpack("!IB", c)
+
+            if debug:
+                print "    {0} subtitles in package {1}({2})".format(file_count,dumb_i+1,description)
+
+            for dumb_j in range(file_count):
+                c = response.read(8)
+                filepack_length, ext_length = struct.unpack("!II", c)
+
+                file_ext = response.read(ext_length).decode("UTF-8")
+                
+                c = response.read(4)
+                file_length = struct.unpack("!I", c)[0]
+                subtitle = response.read(file_length)
+                if subtitle.startswith("\x1f\x8b"):
+                    import gzip
+                    self.subtitles.append([dumb_i, dumb_j, file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
+                else:
+                    print "Unknown package format in downloaded subtiltle data."
+    
 class Launcher:
     """Command line parser and executor.
     """
@@ -261,6 +374,7 @@ class Launcher:
             for f in self.__meta.files:
                 m = Media(mplayer.identify([f]))
                 if m.is_video:
+#                    SubFetcher(m).subtitles
                     args = expand_video(m, self.__meta.expand, self.__meta.screen_dim[2])
                 if m.exist:
                     mplayer.play(args + self.__meta.opts, [f])
@@ -349,3 +463,5 @@ class Launcher:
 debug = False
 mplayer = MPlayer()
 Launcher().run()
+
+

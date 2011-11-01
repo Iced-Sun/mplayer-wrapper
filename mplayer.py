@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/01 18:42:21>
+# Time-stamp: <subi 2011/11/01 19:38:33>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -99,6 +99,84 @@ def expand_video(m, expand_method = "ass", target_aspect = Fraction(4,3)):
         args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],target_aspect)
     return args.split()
 
+def fetch_subtitle(m):
+    """
+    Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
+    """
+    subtitles = []
+    if "text" in m.subtitle_had:
+        return subtitles
+    
+    import random, urllib2
+    post_boundary = "----------------------------{0:x}".format(random.getrandbits(48))
+
+    req = urllib2.Request("{0}://{1}.shooter.cn/api/subapi.php".format(
+            random.choice(["http","https"]),
+            random.choice(["www", "svlayer", "splayer1", "splayer2", "splayer3", "splayer4", "splayer5"])))
+    req.add_header("User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543)))
+    req.add_header("Content-Type", "multipart/form-data; boundary={0}".format(post_boundary))
+
+    data = ""
+    for item in [
+        ["pathinfo", os.path.join("c:/",m.dirname,m.basename).encode("UTF-8")],
+        ["filehash", m.shooter_hash_string],
+        ["lang", "chn"]
+        ]:
+        data += """--{0}
+Content-Disposition: form-data; name="{1}"
+
+{2}
+""".format(post_boundary, item[0], item[1])
+
+    data = data + "--" + post_boundary + "--"
+    req.add_data(data)
+
+    if debug:
+        print "==== Post Data Begin ===="
+        print req.get_full_url()
+        print req.get_data()
+        print "==== Post Data End ===="
+
+    response = urllib2.urlopen(req)
+
+    # parse response
+    import struct
+    from cStringIO import StringIO
+
+    c = response.read(1)
+    package_count = struct.unpack("!b", c)[0]
+
+#        if debug:
+    print "  {0} subtitle packages".format(package_count)
+
+    for dumb_i in range(package_count):
+        c = response.read(8)
+        package_length, desc_length = struct.unpack("!II", c)
+        description = response.read(desc_length).decode("UTF-8")
+            
+        c = response.read(5)
+        package_length, file_count = struct.unpack("!IB", c)
+
+#            if debug:
+        print "    {0} subtitles in package {1}({2})".format(file_count,dumb_i+1,description)
+
+        for dumb_j in range(file_count):
+            c = response.read(8)
+            filepack_length, ext_length = struct.unpack("!II", c)
+
+            file_ext = response.read(ext_length).decode("UTF-8")
+                
+            c = response.read(4)
+            file_length = struct.unpack("!I", c)[0]
+            subtitle = response.read(file_length)
+            if subtitle.startswith("\x1f\x8b"):
+                import gzip
+                subtitles.append([dumb_i, dumb_j, file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
+            else:
+                print "Unknown package format in downloaded subtiltle data."
+                
+    return subtitles
+    
 class MPlayer:
     """mplayer execution envirionment and delegation.
 
@@ -286,83 +364,6 @@ class Media:
             self.shooter_hash_string = ';'.join(map(lambda s: (f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1], (lambda l:[4096, l/3*2, l/3, l-8192])(sz)))
             f.close()
 
-class SubFetcher:
-    """
-    Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
-    """
-    subtitles = []
-    
-    def __init__(self, m):
-        import random, urllib2
-
-        post_boundary = "----------------------------{0:x}".format(random.getrandbits(48))
-
-        req = urllib2.Request("{0}://{1}.shooter.cn/api/subapi.php".format(
-                random.choice(["http","https"]),
-                random.choice(["www", "svlayer", "splayer1", "splayer2", "splayer3", "splayer4", "splayer5"])))
-        req.add_header("User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543)))
-        req.add_header("Content-Type", "multipart/form-data; boundary={0}".format(post_boundary))
-
-        data = ""
-        for item in [
-            ["pathinfo", os.path.join("c:/",m.dirname,m.basename).encode("UTF-8")],
-            ["filehash", m.shooter_hash_string],
-            ["lang", "chn"]
-        ]:
-            data += """--{0}
-Content-Disposition: form-data; name="{1}"
-
-{2}
-""".format(post_boundary, item[0], item[1])
-
-        data = data + "--" + post_boundary + "--"
-        req.add_data(data)
-
-        if debug:
-            print "==== Post Data Begin ===="
-            print req.get_full_url()
-            print req.get_data()
-            print "==== Post Data End ===="
-
-        response = urllib2.urlopen(req)
-        self.__parse_responce(response)
-        
-    def __parse_responce(self, response):
-        import struct
-        from cStringIO import StringIO
-
-        c = response.read(1)
-        package_count = struct.unpack("!b", c)[0]
-
-        if debug:
-            print "  {0} subtitle packages".format(package_count)
-
-        for dumb_i in range(package_count):
-            c = response.read(8)
-            package_length, desc_length = struct.unpack("!II", c)
-            description = response.read(desc_length).decode("UTF-8")
-            
-            c = response.read(5)
-            package_length, file_count = struct.unpack("!IB", c)
-
-            if debug:
-                print "    {0} subtitles in package {1}({2})".format(file_count,dumb_i+1,description)
-
-            for dumb_j in range(file_count):
-                c = response.read(8)
-                filepack_length, ext_length = struct.unpack("!II", c)
-
-                file_ext = response.read(ext_length).decode("UTF-8")
-                
-                c = response.read(4)
-                file_length = struct.unpack("!I", c)[0]
-                subtitle = response.read(file_length)
-                if subtitle.startswith("\x1f\x8b"):
-                    import gzip
-                    self.subtitles.append([dumb_i, dumb_j, file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
-                else:
-                    print "Unknown package format in downloaded subtiltle data."
-    
 class Launcher:
     """Command line parser and executor.
     """
@@ -370,14 +371,23 @@ class Launcher:
         if self.__meta.role == "identifier":
             print mplayer.identify(self.__meta.left_opts)
         else:
-            print
             for f in self.__meta.files:
                 m = Media(mplayer.identify([f]))
+                args = []
                 if m.is_video:
-#                    SubFetcher(m).subtitles
-                    args = expand_video(m, self.__meta.expand, self.__meta.screen_dim[2])
+                    args += expand_video(m, self.__meta.expand, self.__meta.screen_dim[2])
                 if m.exist:
-                    mplayer.play(args + self.__meta.opts, [f])
+                    import threading
+                    t_mplayer = threading.Thread(target=mplayer.play, args=(args+self.__meta.opts,[f]))
+                    t_mplayer.start()
+
+                    import time
+                    sleep_time = 0
+                    while t_mplayer.is_alive() and sleep_time < 5:
+                        time.sleep(0.05)
+                        sleep_time += 0.05
+                    if sleep_time >= 5:
+                        fetch_subtitle(m)
                 
     class Meta:
         # features

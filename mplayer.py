@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/02 15:50:39>
+# Time-stamp: <subi 2011/11/02 16:21:31>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -30,7 +30,6 @@ from fractions import Fraction
 def which(program):
     """Mimic the shell command "which".
     """
-    import os
     def is_exe(fpath):
         return os.path.exists(fpath) and os.access(fpath, os.X_OK)
 
@@ -62,7 +61,7 @@ def check_dimension():
     return dim
 
 def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
-    # scale to video width which is never been touched
+    # scale to video width which is never modified
     args = "-subfont-autoscale 2"
 
     if method == "none":
@@ -73,27 +72,30 @@ def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
         # ass is total mess
         # 3 aspects: video, screen, and PlayResX:PlayResY
         # mplayer use PlayResX = 336 as default, so do we
-        ass_dim = [336,252,Fraction(336,252)]
+
+        # magic values
+        # ass dimesion magic
+        magic_ass_dim = [336,252,Fraction(336,252)]
+        magic_font_scale = 1.3
+        magic_subtitle_height = int(magic_font_scale * 50)
 
         # basic scale factor
         m2t = m.scaled_dimension[2] / target_aspect
 
         # base opts
-        args += " -ass -embeddedfonts"
-        args += " -ass-font-scale {0}".format(1.4*m2t)
+        args += " -ass -ass-font-scale {0}".format(magic_font_scale*m2t)
 
         # margin opts
         margin = (m2t - 1) * m.scaled_dimension[1] / 2
         if margin > 0:
             args += " -ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin))
             args += " -ass-force-style "
-            args += "PlayResX={0[0]},PlayResY={0[1]}".format(ass_dim)
+            args += "PlayResX={0[0]},PlayResY={0[1]}".format(magic_ass_dim)
             args += ",ScaleX={0},ScaleY=1".format(1/float(m2t))
-            # put the subtitle as close to video picture as possible
-            offset = margin-70
-            if offset < 0:
-                offset = 0
-            args += ",MarginV={0}".format(float(offset*ass_dim[1]/(m.scaled_dimension[0]/m.scaled_dimension[2])))
+            # place the subtitle as close to the picture as possible
+            offset = margin-magic_subtitle_height
+            if offset < 0: offset = 0
+            args += ",MarginV={0}".format(float(offset*magic_ass_dim[1]/(m.scaled_dimension[0]/m.scaled_dimension[2])))
     else:
         # -vf expand does its own non-square pixel adjustment
         args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],target_aspect)

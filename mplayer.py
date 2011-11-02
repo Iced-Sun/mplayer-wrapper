@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/02 16:21:31>
+# Time-stamp: <subi 2011/11/02 17:48:29>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -23,7 +23,7 @@
 # Foundation Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
 # USA
 
-import os, sys, threading, logging
+import os, sys, re, threading, logging
 from subprocess import *
 from fractions import Fraction
 
@@ -146,6 +146,7 @@ Content-Disposition: form-data; name="{1}"
 
     logging.info("{0} subtitle packages found".format(package_count))
 
+    fetched_subs = []
     for dumb_i in range(package_count):
         c = response.read(8)
         package_length, desc_length = struct.unpack("!II", c)
@@ -167,93 +168,85 @@ Content-Disposition: form-data; name="{1}"
             subtitle = response.read(file_length)
             if subtitle.startswith("\x1f\x8b"):
                 import gzip
-                m.fetched_subs.append([file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
+                fetched_subs.append([file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
             else:
                 logging.warning("Unknown package format in downloaded subtiltle data.")
 
-    logging.info("{0} subtitle(s) fetched.".format(len(m.fetched_subs)))
+    logging.info("{0} subtitle(s) fetched.".format(len(fetched_subs)))
 
-    for i in range(len(m.fetched_subs)):
+    for i in range(len(fetched_subs)):
         if i==0:
             suffix = ""
         else:
             suffix = str(i)
-        sub_path =  "{0}{1}.{2}".format(os.path.splitext(m.fullpath)[0], suffix, m.fetched_subs[i][0])
+        sub_path =  "{0}{1}.{2}".format(os.path.splitext(m.fullpath)[0], suffix, fetched_subs[i][0])
         logging.info("Saving subtitle file as {0}".format(sub_path))
         f = open(sub_path,"wb")
-        f.write(m.fetched_subs[i][1])
+        f.write(fetched_subs[i][1])
         f.close()
     
 class MPlayer:
-    """mplayer execution envirionment and delegation.
-
-    Usage:
-    MPlayer mp;
-    mp.check_opt("vo");
-    mp.identify("my.avi");
-    mp("my.avi");
-    """
     # TODO: "not compiled in option"
-    def check_opt(self, opt):
-        if len(self.__opts) == 0:
-            self.__get_opts()
+    @staticmethod
+    def has_support(opt):
         support = False
         take_param = False
-        if opt in self.__opts:
+        if opt in MPlayer.supported_opts:
             support = True
-            take_param = self.__opts[opt]
+            take_param = MPlayer.supported_opts[opt]
         return [support, take_param]
 
-    def identify(self,fl=[]):
-        p = self(self.__identify_args + fl, True)
-        p2 = Popen(self.__grep, stdin = p.stdout, stdout = PIPE)
-        return p2.communicate()[0]
+    @staticmethod
+    def identify(filelist=[]):
+        result = []
+        p = Popen([MPlayer.path]+"-vo null -ao null -frames 0 -identify".split()+filelist, stdout=PIPE, stderr=PIPE)
+        for line in p.communicate()[0].splitlines():
+            if line.startswith("ID_"): result.append(line)
+        return result
 
-    def play(self,args=[],f=[],hook=[]):
-        logging.debug("""will execute:
-{0}""".format(' '.join([self.__path]+args+f)))
+    @staticmethod
+    def play(args=[],f=[],timers=[]):
+        for t in timers:
+            t.start()
 
-        if dry_run==True:
-            return
-
-        hook.start()
-        p = self(args + f)
+        p = Popen([MPlayer.path]+args+f,stdin=sys.stdin,stdout=PIPE,stderr=None)
         while p.poll() == None:
             o = p.stdout.read(1)
             sys.stdout.write(o)
             sys.stdout.flush()
-        hook.cancel()
-   
-    def __call__(self,args=[], suppress_stderr = False):
-        if suppress_stderr:
-            return Popen([self.__path] + args, stdin = sys.stdin, stdout = PIPE, stderr = PIPE)
-        else:
-            return Popen([self.__path] + args, stdin = sys.stdin, stdout = PIPE, stderr = None)
-            
-    # internal
-    __path = ""
-    __opts = {}
-    __identify_args = "-vo null -ao null -frames 0 -identify".split()
-    __grep = """grep ^ID_.*= """.split()
-    
-    def __init__(self):
-        self.__probe_mplayer()
 
-    def __probe_mplayer(self):
+        for t in timers:
+            t.cancel()
+        
+    @staticmethod
+    def init():
+        if not MPlayer.initialized:
+            MPlayer.initialized = True;
+            MPlayer.probe_mplayer()
+            MPlayer.query_supported_opts()
+            
+    ## internal
+    initialized = False
+    path = ""
+    supported_opts = {}
+
+    @staticmethod
+    def probe_mplayer():
         for p in ["/opt/bin/mplayer","/usr/local/bin/mplayer","/usr/bin/mplayer"]:
             if os.path.isfile(p):
-                self.__path = p
-        if self.__path == "":
+                MPlayer.path = p
+        if MPlayer.path == "":
             raise RuntimeError,"Didn't find a mplayer binary."
 
-    def __get_opts(self):
-        for line in Popen([self.__path, "-list-options"], stdout=PIPE).communicate()[0].splitlines():
+    @staticmethod
+    def query_supported_opts():
+        for line in Popen([MPlayer.path, "-list-options"], stdout=PIPE).communicate()[0].splitlines():
             s = line.split();
             if len(s) < 7:
                 continue
             if s[len(s)-1] == "Yes" or s[len(s)-1] == "No":
                 opt = s[0].split(":") # take care of option:suboption
-                if opt[0] in self.__opts:
+                if opt[0] in MPlayer.supported_opts:
                     continue
                 if len(opt) == 2:
                     take_param = True
@@ -261,15 +254,15 @@ class MPlayer:
                     take_param = True
                 else:
                     take_param = False
-                self.__opts[opt[0]] = take_param
+                MPlayer.supported_opts[opt[0]] = take_param
         # handle vf* af*: mplayer reports option name as vf*, while it
         # is a family of options.
-        del self.__opts['af*']
-        del self.__opts['vf*']
+        del MPlayer.supported_opts['af*']
+        del MPlayer.supported_opts['vf*']
         for extra in ["af","af-adv","af-add","af-pre","af-del","vf","vf-add","vf-pre","vf-del"]:
-            self.__opts[extra] = True
+            MPlayer.supported_opts[extra] = True
         for extra in ["af-clr","vf-clr"]:
-            self.__opts[extra] = False
+            MPlayer.supported_opts[extra] = False
 
 class Media:
     """Construct media metadata by midentify; may apply "proper" fixes
@@ -298,7 +291,7 @@ class Media:
         """Parse the output by midentify.
         """
         info = {}
-        for l in info_input.splitlines():
+        for l in info_input:
             a = l.split('=')
             info[a[0]] = a[1]
 
@@ -318,24 +311,26 @@ class Media:
     def __log(self):
         log_string = """ Media info for {0}
 Path:
-  Fullpath:     {1}
-  Base name:    {2}
-  Dir name:     {3}
-Seekable:       {4}
-Video:          {5}""".format(self.filename,
-                              self.fullpath,
-                              self.basename,
-                              self.dirname,
-                              self.seekable,
-                              self.is_video)
+  Fullpath:             {1}
+  Base name:            {2}
+  Dir name:             {3}
+Seekable:               {4}
+Video:                  {5}""".format(self.filename,
+                                      self.fullpath,
+                                      self.basename,
+                                      self.dirname,
+                                      self.seekable,
+                                      self.is_video)
         if self.is_video:
             log_string += """
-  Dimension:    {0}
-  Aspect:       {1}
-  Subtitles:    {2}
-    Need Fetch: {3}
-  File hash:    {4}
-""".format("{0[0]}x{0[1]}".format(self.scaled_dimension),
+  Dimension(pixel):     {0}
+  Dimension(display):   {1}
+  Aspect(display):      {2}
+  Subtitles:            {3}
+    Need Fetch:         {4}
+  File hash:            {5}
+""".format("{0[0]}x{0[1]}".format(self.original_dimension),
+           "{0[0]}x{0[1]}".format(self.scaled_dimension),
            float(self.scaled_dimension[2]),
            self.subtitle_had,
            self.subtitle_need_fetch,
@@ -375,13 +370,10 @@ Video:          {5}""".format(self.filename,
     def __gen_subtitle_info(self,info):
         if "ID_SUBTITLE_ID" in info:
             self.subtitle_had = "embedded text"
-
         if "ID_FILE_SUB_ID" in info:
             self.subtitle_had = "external text"
-
         if "ID_VOBSUB_ID" in info:
             self.subtitle_had = "external vobsub"
-
         if "text" in self.subtitle_had:
             self.subtitle_need_fetch = False
         else:
@@ -400,20 +392,22 @@ class Launcher:
     """
     def run(self):
         if self.__meta.role == "identifier":
-            print mplayer.identify(self.__meta.left_opts)
+            print '\n'.join(MPlayer.identify(self.__meta.left_opts))
         else:
             for f in self.__meta.files:
-                m = Media(mplayer.identify([f]))
+                m = Media(MPlayer.identify([f]))
+                hooks = []
+
                 if m.exist:
                     args = []
                     if m.is_video:
                         args += expand_video(m, self.__meta.expand, self.__meta.screen_dim[2])
                         if dry_run == False and m.subtitle_need_fetch == True:
-                            hook = threading.Timer(5.0, fetch_subtitle, (m,))
-                        else:
-                            hook = threading.Timer(0.0, lambda:())
+                            hooks.append(threading.Timer(5.0, fetch_subtitle, (m,)))
 
-                    mplayer.play(args+self.__meta.opts,[f],hook)
+                    logging.debug("Args for mplayer:\n{0}".format(' '.join(args+[f])))
+                    if dry_run == False:
+                        MPlayer.play(args+self.__meta.opts,[f],hooks)
                 else:
                     logging.info("{0} is not a media file".format(f))
                 
@@ -440,9 +434,9 @@ class Launcher:
 
     @staticmethod
     def __log_meta(meta):
-        logging.debug("Run as <{0}>".format(meta.role))
+        log_string = "Run as <{0}>".format(meta.role)
         if meta.role == "player":
-            logging.debug("""
+            log_string += """
 Command line options:
   Unpassed:             {0}
   Bypassed:             {1}
@@ -464,8 +458,10 @@ Features:
            "{0.numerator}:{0.denominator}".format(meta.screen_dim[2]),
            meta.expand,
            meta.resume,
-           meta.continuous))
-        
+           meta.continuous)
+
+        logging.debug(log_string)
+
     @staticmethod
     def __check_role(meta):
         a = os.path.basename(sys.argv.pop(0))
@@ -510,7 +506,7 @@ Features:
 # main
 dry_run = False
 
-mplayer = MPlayer()
+MPlayer.init()
 Launcher().run()
 
 

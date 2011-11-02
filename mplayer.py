@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/02 13:36:36>
+# Time-stamp: <subi 2011/11/02 15:50:39>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -102,14 +102,13 @@ def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
 def fetch_subtitle(m):
     """Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
     """
-    subtitles = []
-    
     import random, urllib2
     post_boundary = "----------------------------{0:x}".format(random.getrandbits(48))
 
+    # [svlayer, splayer5].shooter.cn has issues
     req = urllib2.Request("{0}://{1}.shooter.cn/api/subapi.php".format(
             random.choice(["http","https"]),
-            random.choice(["www", "svlayer", "splayer1", "splayer2", "splayer3", "splayer4", "splayer5"])))
+            random.choice(["www", "splayer1", "splayer2", "splayer3", "splayer4"])))
     req.add_header("User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543)))
     req.add_header("Content-Type", "multipart/form-data; boundary={0}".format(post_boundary))
 
@@ -133,12 +132,8 @@ Content-Disposition: form-data; name="{1}"
 {1}
 ==== Post data end""".format(req.get_full_url(), req.get_data()))
 
-    ### NOTE: an exit here
-    if "text" in m.subtitle_had or dry_run==True:
-        return
-
     # now request the real connection
-    response = urllib2.urlopen(req, timeout=10)
+    response = urllib2.urlopen(req)
 
     # parse response
     import struct
@@ -170,22 +165,21 @@ Content-Disposition: form-data; name="{1}"
             subtitle = response.read(file_length)
             if subtitle.startswith("\x1f\x8b"):
                 import gzip
-                subtitles.append([file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
+                m.fetched_subs.append([file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
             else:
                 logging.warning("Unknown package format in downloaded subtiltle data.")
 
-    logging.info("{0} subtitle(s) fetched.".format(len(subtitles)))
-    return subtitles
+    logging.info("{0} subtitle(s) fetched.".format(len(m.fetched_subs)))
 
-def save_subtiles(m, subs):
-    for i in range(len(subs)):
+    for i in range(len(m.fetched_subs)):
         if i==0:
             suffix = ""
         else:
             suffix = str(i)
-        sub_path =  "{0}{1}.{2}".format(os.path.splitext(m.fullpath)[0], suffix, subs[i][0])
+        sub_path =  "{0}{1}.{2}".format(os.path.splitext(m.fullpath)[0], suffix, m.fetched_subs[i][0])
+        logging.info("Saving subtitle file as {0}".format(sub_path))
         f = open(sub_path,"wb")
-        f.write(subs[i][1])
+        f.write(m.fetched_subs[i][1])
         f.close()
     
 class MPlayer:
@@ -213,17 +207,20 @@ class MPlayer:
         p2 = Popen(self.__grep, stdin = p.stdout, stdout = PIPE)
         return p2.communicate()[0]
 
-    def play(self,args=[],f=[]):
+    def play(self,args=[],f=[],hook=[]):
         logging.debug("""will execute:
 {0}""".format(' '.join([self.__path]+args+f)))
 
         if dry_run==True:
             return
-        
+
+        hook.start()
         p = self(args + f)
         while p.poll() == None:
-            o = p.stdout.readline()
+            o = p.stdout.read(1)
             sys.stdout.write(o)
+            sys.stdout.flush()
+        hook.cancel()
    
     def __call__(self,args=[], suppress_stderr = False):
         if suppress_stderr:
@@ -291,6 +288,7 @@ class Media:
     scaled_dimension = [0,0,Fraction(0)]
 
     subtitle_had = "none"
+    subtitle_need_fetch = False
 
     shooter_hash_string = ""
     
@@ -322,22 +320,23 @@ Path:
   Base name:    {2}
   Dir name:     {3}
 Seekable:       {4}
-Video:          {5}
-""".format(self.filename,
-           self.fullpath,
-           self.basename,
-           self.dirname,
-           self.seekable,
-           self.is_video)
+Video:          {5}""".format(self.filename,
+                              self.fullpath,
+                              self.basename,
+                              self.dirname,
+                              self.seekable,
+                              self.is_video)
         if self.is_video:
             log_string += """
   Dimension:    {0}
   Aspect:       {1}
   Subtitles:    {2}
-  File hash:    {3}
+    Need Fetch: {3}
+  File hash:    {4}
 """.format("{0[0]}x{0[1]}".format(self.scaled_dimension),
            float(self.scaled_dimension[2]),
            self.subtitle_had,
+           self.subtitle_need_fetch,
            self.shooter_hash_string)
         logging.debug(log_string)
 
@@ -381,6 +380,11 @@ Video:          {5}
         if "ID_VOBSUB_ID" in info:
             self.subtitle_had = "external vobsub"
 
+        if "text" in self.subtitle_had:
+            self.subtitle_need_fetch = False
+        else:
+            self.subtitle_need_fetch = True
+
     def __gen_shooter_info(self,info):
         sz = os.path.getsize(self.fullpath)
         if sz>8192:
@@ -400,28 +404,16 @@ class Launcher:
                 m = Media(mplayer.identify([f]))
                 if m.exist:
                     args = []
-
                     if m.is_video:
                         args += expand_video(m, self.__meta.expand, self.__meta.screen_dim[2])
-                        if dry_run == True:
-                            thread_fetchsub = threading.Thread(target=fetch_subtitle, args=(m,))
+                        if dry_run == False and m.subtitle_need_fetch == True:
+                            hook = threading.Timer(5.0, fetch_subtitle, (m,))
                         else:
-                            thread_fetchsub = threading.Timer(5.0, fetch_subtitle, (m,))
+                            hook = threading.Timer(0.0, lambda:())
 
-                    thread_mplayer = threading.Thread(target=mplayer.play, args=(args+self.__meta.opts,[f]))
-
-                    thread_mplayer.start()
-                    if m.is_video:
-                        thread_fetchsub.start()
-
-                    thread_mplayer.join()
-                    if m.is_video:
-                        if dry_run == False:
-                            thread_fetchsub.cancel()
-                        thread_fetchsub.join()
+                    mplayer.play(args+self.__meta.opts,[f],hook)
                 else:
-                    print
-                    print "{0} is not a valid media file.".format(f)
+                    logging.info("{0} is not a media file".format(f))
                 
     class Meta:
         # features
@@ -465,7 +457,7 @@ Features:
 """.format(' '.join(meta.left_opts),
            ' '.join(meta.opts),
            ' '.join(meta.invalid_opts),
-           '\n    '.join(meta.files),
+           '\n  '.join(meta.files),
            "{0[0]}x{0[1]}".format(meta.screen_dim),
            "{0.numerator}:{0.denominator}".format(meta.screen_dim[2]),
            meta.expand,
@@ -487,8 +479,10 @@ Features:
             a = meta.left_opts.pop(0)
 
             if a == "-debug":
-                global debug, dry_run
-                debug = True
+                logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.DEBUG)
+            elif a == "-dry-run":
+                logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.DEBUG)
+                global dry_run
                 dry_run = True
             elif a == "-noass":
                 meta.expand = "noass"
@@ -512,9 +506,7 @@ Features:
             meta.continuous = False
 
 # main
-debug = False
 dry_run = False
-logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.DEBUG)
 
 mplayer = MPlayer()
 Launcher().run()

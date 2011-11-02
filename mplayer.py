@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/02 10:47:33>
+# Time-stamp: <subi 2011/11/02 13:36:36>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -23,7 +23,7 @@
 # Foundation Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
 # USA
 
-import os,sys
+import os, sys, threading, logging
 from subprocess import *
 from fractions import Fraction
 
@@ -48,7 +48,7 @@ def which(program):
 def check_dimension():
     """Select the availible maximal screen dimension by xrandr.
     """
-    dim = [640,480,Fraction(640,480)]
+    dim = [640, 480, Fraction(640,480)]
     if which("xrandr") != None:
         p1 = Popen(["xrandr"], stdout = PIPE)
         p2 = Popen(["grep", "*"], stdin = p1.stdout, stdout = PIPE)
@@ -61,15 +61,15 @@ def check_dimension():
         dim[2] = Fraction(dim[0],dim[1])
     return dim
 
-def expand_video(m, expand_method = "ass", target_aspect = Fraction(4,3)):
+def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
     # scale to video width which is never been touched
     args = "-subfont-autoscale 2"
 
-    if expand_method == "none":
+    if method == "none":
         args = ""
     elif m.scaled_dimension[2] < Fraction(4,3) :
         args = "-vf-pre dsize=4/3"
-    elif expand_method == "ass":
+    elif method == "ass":
         # ass is total mess
         # 3 aspects: video, screen, and PlayResX:PlayResY
         # mplayer use PlayResX = 336 as default, so do we
@@ -100,12 +100,9 @@ def expand_video(m, expand_method = "ass", target_aspect = Fraction(4,3)):
     return args.split()
 
 def fetch_subtitle(m):
-    """
-    Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
+    """Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
     """
     subtitles = []
-    if "text" in m.subtitle_had:
-        return subtitles
     
     import random, urllib2
     post_boundary = "----------------------------{0:x}".format(random.getrandbits(48))
@@ -113,7 +110,6 @@ def fetch_subtitle(m):
     req = urllib2.Request("{0}://{1}.shooter.cn/api/subapi.php".format(
             random.choice(["http","https"]),
             random.choice(["www", "svlayer", "splayer1", "splayer2", "splayer3", "splayer4", "splayer5"])))
-    print "====> ", req.get_full_url()
     req.add_header("User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543)))
     req.add_header("Content-Type", "multipart/form-data; boundary={0}".format(post_boundary))
 
@@ -132,12 +128,16 @@ Content-Disposition: form-data; name="{1}"
     data = data + "--" + post_boundary + "--"
     req.add_data(data)
 
-    if debug:
-        print 
-        print "==== Will post data ===="
-        print req.get_data()
-        return subtitles
+    logging.debug("""Will contact server {0}
+==== Post data begin
+{1}
+==== Post data end""".format(req.get_full_url(), req.get_data()))
 
+    ### NOTE: an exit here
+    if "text" in m.subtitle_had or dry_run==True:
+        return
+
+    # now request the real connection
     response = urllib2.urlopen(req, timeout=10)
 
     # parse response
@@ -147,8 +147,7 @@ Content-Disposition: form-data; name="{1}"
     c = response.read(1)
     package_count = struct.unpack("!b", c)[0]
 
-#        if debug:
-    print "  {0} subtitle packages".format(package_count)
+    logging.info("{0} subtitle packages found".format(package_count))
 
     for dumb_i in range(package_count):
         c = response.read(8)
@@ -158,8 +157,7 @@ Content-Disposition: form-data; name="{1}"
         c = response.read(5)
         package_length, file_count = struct.unpack("!IB", c)
 
-#        if debug:
-        print "    {0} subtitles in package {1}({2})".format(file_count,dumb_i+1,description)
+        logging.info("{0} subtitles in package {1}({2})".format(file_count,dumb_i+1,description))
 
         for dumb_j in range(file_count):
             c = response.read(8)
@@ -174,9 +172,9 @@ Content-Disposition: form-data; name="{1}"
                 import gzip
                 subtitles.append([file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
             else:
-                print "Unknown package format in downloaded subtiltle data."
+                logging.warning("Unknown package format in downloaded subtiltle data.")
 
-    print "{0} subtitle(s) fetched.".format(len(subtitles))
+    logging.info("{0} subtitle(s) fetched.".format(len(subtitles)))
     return subtitles
 
 def save_subtiles(m, subs):
@@ -216,17 +214,18 @@ class MPlayer:
         return p2.communicate()[0]
 
     def play(self,args=[],f=[]):
-        if debug:
-            print "==== Will execute ===="
-            print ' '.join([self.__path]+args+f)
-        else:
-            p = self(args + f)
-            while p.poll() == None:
-                o = p.stdout.readline()
-                sys.stdout.write(o)
+        logging.debug("""will execute:
+{0}""".format(' '.join([self.__path]+args+f)))
+
+        if dry_run==True:
+            return
+        
+        p = self(args + f)
+        while p.poll() == None:
+            o = p.stdout.readline()
+            sys.stdout.write(o)
    
     def __call__(self,args=[], suppress_stderr = False):
-        
         if suppress_stderr:
             return Popen([self.__path] + args, stdin = sys.stdin, stdout = PIPE, stderr = PIPE)
         else:
@@ -295,24 +294,6 @@ class Media:
 
     shooter_hash_string = ""
     
-    def info(self):
-        print
-        print "==== Media info begin ===="
-        print "  Media: ",                   self.filename
-        print "    Fullpath: ",              self.fullpath
-        print "    Base name: ",             self.basename
-        print "    Dir name: ",              self.dirname
-        print "  Seekable: ",                self.seekable
-        print "  Has video: ",               self.is_video
-        if self.is_video:
-            print "    Dimension: ",         "{0[0]}x{0[1]}".format(self.scaled_dimension)
-            print "    Aspect: ",            float(self.scaled_dimension[2])
-            print "    Subtitles: ",         self.subtitle_had
-            print "    File hash: ",         self.shooter_hash_string
-            print "    Subtitles: ",         self.subtitle_had
-        print "====  Media info end  ===="
-        print
-
     def __init__(self,info_input):
         """Parse the output by midentify.
         """
@@ -331,9 +312,34 @@ class Media:
             self.__gen_video_info(info)
             self.__gen_subtitle_info(info)
             self.__gen_shooter_info(info)
+            
+        self.__log()
 
-        if debug:
-            self.info()
+    def __log(self):
+        log_string = """ Media info for {0}
+Path:
+  Fullpath:     {1}
+  Base name:    {2}
+  Dir name:     {3}
+Seekable:       {4}
+Video:          {5}
+""".format(self.filename,
+           self.fullpath,
+           self.basename,
+           self.dirname,
+           self.seekable,
+           self.is_video)
+        if self.is_video:
+            log_string += """
+  Dimension:    {0}
+  Aspect:       {1}
+  Subtitles:    {2}
+  File hash:    {3}
+""".format("{0[0]}x{0[1]}".format(self.scaled_dimension),
+           float(self.scaled_dimension[2]),
+           self.subtitle_had,
+           self.shooter_hash_string)
+        logging.debug(log_string)
 
     def __gen_meta_info(self,info):
         self.filename = info["ID_FILENAME"]
@@ -392,21 +398,27 @@ class Launcher:
         else:
             for f in self.__meta.files:
                 m = Media(mplayer.identify([f]))
-                args = []
-                if m.is_video:
-                    args += expand_video(m, self.__meta.expand, self.__meta.screen_dim[2])
                 if m.exist:
-                    import threading
+                    args = []
+
+                    if m.is_video:
+                        args += expand_video(m, self.__meta.expand, self.__meta.screen_dim[2])
+                        if dry_run == True:
+                            thread_fetchsub = threading.Thread(target=fetch_subtitle, args=(m,))
+                        else:
+                            thread_fetchsub = threading.Timer(5.0, fetch_subtitle, (m,))
+
                     thread_mplayer = threading.Thread(target=mplayer.play, args=(args+self.__meta.opts,[f]))
-                    thread_fetchsub = threading.Timer(5.0, fetch_subtitle, (m,))
 
                     thread_mplayer.start()
-                    thread_fetchsub.start()
+                    if m.is_video:
+                        thread_fetchsub.start()
 
                     thread_mplayer.join()
-                    thread_fetchsub.cancel()
-                    thread_fetchsub.join()
-                        
+                    if m.is_video:
+                        if dry_run == False:
+                            thread_fetchsub.cancel()
+                        thread_fetchsub.join()
                 else:
                     print
                     print "{0} is not a valid media file.".format(f)
@@ -423,46 +435,51 @@ class Launcher:
         invalid_opts = []
         left_opts = []
         files = []
-        def info(self):
-            print "==== Launcher info begin ===="
-            print "  Role: ",                 self.role
-            if self.role == "player":
-                print "  Command line options: "
-                if len(self.left_opts) > 0:
-                    print "    Unpassed: ",   ' '.join(self.left_opts)
-                if len(self.opts) > 0:
-                    print "    Bypassed:",    ' '.join(self.opts)
-                if len(self.invalid_opts) > 0:
-                    print "    Discarded: ",  ' '.join(self.invalid_opts)
-                if len(self.files) > 0:
-                    print "  Play list: "
-                    for f in self.files:
-                        print "    ",f
-                print "  Sreen dimension: ",              "{0[0]}x{0[1]}".format(self.screen_dim)
-                print "  Sreen aspect: ",                 "{0.numerator}:{0.denominator}".format(self.screen_dim[2])
-                print "  Video expanding: ",              self.expand
-                print "  Resume played: ",                self.resume
-                print "  Continuous play: ",              self.continuous
-            print "==== Launcher info end ===="
-
-    __meta = Meta()
 
     def __init__(self):
-        self.__check_action(self.__meta)
-        self.__meta.left_opts = sys.argv
+        self.__meta = self.Meta()
+        self.__check_role(self.__meta)
         if self.__meta.role != "identifier":
             self.__meta.screen_dim = check_dimension()
             self.__parse_args(self.__meta)
-        if debug:
-            self.__meta.info()
+        self.__log_meta(self.__meta)
 
     @staticmethod
-    def __check_action(meta):
+    def __log_meta(meta):
+        logging.debug("Run as <{0}>".format(meta.role))
+        if meta.role == "player":
+            logging.debug("""
+Command line options:
+  Unpassed:             {0}
+  Bypassed:             {1}
+  Discarded:            {2}
+Playlist:
+  {3}
+Screen:
+  Dimension:            {4}
+  Aspect:               {5}
+Features:
+  Video expanding:      {6}
+  Resume player:        {7}
+  Continuous playing:   {8}
+""".format(' '.join(meta.left_opts),
+           ' '.join(meta.opts),
+           ' '.join(meta.invalid_opts),
+           '\n    '.join(meta.files),
+           "{0[0]}x{0[1]}".format(meta.screen_dim),
+           "{0.numerator}:{0.denominator}".format(meta.screen_dim[2]),
+           meta.expand,
+           meta.resume,
+           meta.continuous))
+        
+    @staticmethod
+    def __check_role(meta):
         a = os.path.basename(sys.argv.pop(0))
         if a == "mplayer":
             meta.role = "player"
         elif a == "midentify":
             meta.role = "identifier"
+        meta.left_opts = sys.argv
             
     @staticmethod
     def __parse_args(meta):
@@ -470,8 +487,9 @@ class Launcher:
             a = meta.left_opts.pop(0)
 
             if a == "-debug":
-                global debug
+                global debug, dry_run
                 debug = True
+                dry_run = True
             elif a == "-noass":
                 meta.expand = "noass"
                 meta.opts.append(a)
@@ -495,6 +513,9 @@ class Launcher:
 
 # main
 debug = False
+dry_run = False
+logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.DEBUG)
+
 mplayer = MPlayer()
 Launcher().run()
 

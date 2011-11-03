@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/03 10:21:27>
+# Time-stamp: <subi 2011/11/03 11:47:48>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -107,10 +107,10 @@ def fetch_subtitle(m):
     import random, urllib2
     post_boundary = "----------------------------{0:x}".format(random.getrandbits(48))
 
-    # [svlayer, splayer5].shooter.cn has issues
+    # [www, svlayer, splayer5].shooter.cn has issues
     req = urllib2.Request("{0}://{1}.shooter.cn/api/subapi.php".format(
             random.choice(["http","https"]),
-            random.choice(["www", "splayer1", "splayer2", "splayer3", "splayer4"])))
+            random.choice(["splayer1", "splayer2", "splayer3", "splayer4"])))
     req.add_header("User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543)))
     req.add_header("Content-Type", "multipart/form-data; boundary={0}".format(post_boundary))
 
@@ -184,9 +184,34 @@ Content-Disposition: form-data; name="{1}"
         f = open(sub_path,"wb")
         f.write(fetched_subs[i][1])
         f.close()
+    MPlayer.cmd("sub_load {0}".format(sub_path))
+    MPlayer.cmd("sub_file {0}".format(sub_path))
+
+class Fifo:
+    path = ""
+    __tmpdir = ""
+    __initialized = False
+    def __init__(self):
+        if not Fifo.__initialized:
+            import tempfile
+            Fifo.__tmpdir = tempfile.mkdtemp()
+            Fifo.path = os.path.join(Fifo.__tmpdir, 'mplayer_fifo')
+            os.mkfifo(Fifo.path)
+            Fifo.__initialized = True
+    def __del__(self):
+        if Fifo.__initialized:
+            os.unlink(Fifo.path)
+            os.rmdir(Fifo.__tmpdir)
+        Fifo.__initialized = False
     
 class MPlayer:
     # TODO: "not compiled in option"
+    def __init__(self):
+        if not MPlayer.initialized:
+            MPlayer.probe_mplayer()
+            MPlayer.query_supported_opts()
+            MPlayer.initialized = True;
+
     @staticmethod
     def has_support(opt):
         support = False
@@ -205,11 +230,26 @@ class MPlayer:
         return result
 
     @staticmethod
+    def cmd(cmd_string):
+        if MPlayer.instance.poll() == None:
+            logging.debug("Sending command <{0}> to <{1}>".format(cmd_string, filename))
+            fifo = open(filename,"w")
+            fifo.write(cmd_string+'\n')
+            fifo.close()
+        
+    @staticmethod
     def play(args=[],f=[],timers=[]):
-        for t in timers:
-            t.start()
+        for t in timers: t.start()
 
-        p = Popen([MPlayer.path]+args+f,stdin=sys.stdin,stdout=PIPE,stderr=None)
+        p = MPlayer.instance = Popen([MPlayer.path]+args+f,stdin=sys.stdin,stdout=PIPE,stderr=None)
+#        p = MPlayer.instance = Popen([MPlayer.path]+["-input"]+["file={0}".format(filename)]+args+f,stdin=sys.stdin,stdout=PIPE,stderr=None)
+        MPlayer.tee()
+        
+        for t in timers: t.cancel(); t.join()
+
+    @staticmethod
+    def tee(f=sys.stdout):
+        p = MPlayer.instance
         line = ""
         while p.poll() == None:
             c = p.stdout.read(1)
@@ -229,19 +269,9 @@ class MPlayer:
                 line += c
         sys.stdout.write(line)
         
-        for t in timers:
-            t.cancel()
-            t.join()
-        
-    @staticmethod
-    def init():
-        if not MPlayer.initialized:
-            MPlayer.initialized = True;
-            MPlayer.probe_mplayer()
-            MPlayer.query_supported_opts()
-            
     ## internal
     initialized = False
+    instance = None
     path = ""
     supported_opts = {}
 
@@ -520,21 +550,9 @@ Features:
 
 # main
 dry_run = False
-""""
-import tempfile
 
-tmpdir = tempfile.mkdtemp()
-filename = os.path.join(tmpdir, 'mplayer_fifo')
-print filename
-
-os.mkfifo(filename)
-fifo = open(filename, 'w')
-
-fifo.close()
-
-os.unlink(filename)
-os.rmdir(tmpdir)
-"""
-
-MPlayer.init()
+Fifo()
+MPlayer()
 Launcher().run()
+
+

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/03 12:33:25>
+# Time-stamp: <subi 2011/11/03 16:49:04>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -24,6 +24,7 @@
 # USA
 
 import os, sys, threading, logging
+import struct, urllib2
 from subprocess import *
 from fractions import Fraction
 
@@ -43,22 +44,6 @@ def which(program):
             if is_exe(exe_file):
                 return exe_file
     return None
-
-def check_dimension():
-    """Select the availible maximal screen dimension by xrandr.
-    """
-    dim = [640, 480, Fraction(640,480)]
-    if which("xrandr") != None:
-        p1 = Popen(["xrandr"], stdout = PIPE)
-        p2 = Popen(["grep", "*"], stdin = p1.stdout, stdout = PIPE)
-        p1.stdout.close()
-        for line in p2.communicate()[0].splitlines():
-            t =  line.split()[0].split('x')
-            if int(t[0]) > dim[0]:
-                dim[0] = int(t[0])
-                dim[1] = int(t[1])
-        dim[2] = Fraction(dim[0],dim[1])
-    return dim
 
 def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
     # scale to video width which is never modified
@@ -101,95 +86,135 @@ def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
         args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],target_aspect)
     return args.split()
 
-# TODO: should split to several functions
-# e.g. use class
-def fetch_subtitle(m):
+class SubFetcher:
     """Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
     """
-    import random, urllib2
-    post_boundary = "----------------------------{0:x}".format(random.getrandbits(48))
+    subtitles = []
+    save_dir = ""
 
-    # [www, svlayer, splayer5].shooter.cn has issues
-    req = urllib2.Request("{0}://{1}.shooter.cn/api/subapi.php".format(
-            random.choice(["http","https"]),
-            random.choice(["splayer1", "splayer2", "splayer3", "splayer4"])))
-    req.add_header("User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543)))
-    req.add_header("Content-Type", "multipart/form-data; boundary={0}".format(post_boundary))
+    def do(self):
+        self.fetch()
+        self.save()
+        self.activate_in_mplayer()
+        
+    def __init__(self, m):
+        self.save_dir = os.path.splitext(m.fullpath)[0]
+        self.__build_data(m)
+        
+        self.req = urllib2.Request(self.url)
+        for h in self.header: self.req.add_header(h[0],h[1])
+        self.req.add_data(self.data)
 
-    data = ""
-    for item in [
-        ["pathinfo", os.path.join("c:/",m.dirname,m.basename)],
-        ["filehash", m.shooter_hash_string],
-        ["lang", "chn"]
-        ]:
-        data += """--{0}
-Content-Disposition: form-data; name="{1}"
+    def fetch(self):
+        def parse_package(response):
+            c = response.read(8)
+            package_length, desc_length = struct.unpack("!II", c)
+            description = response.read(desc_length).decode("UTF-8")
 
-{2}
-""".format(post_boundary, item[0], item[1])
-
-    data = data + "--" + post_boundary + "--"
-    req.add_data(data)
-
-    logging.debug("""Will contact server {0}
-==== Post data begin
-{1}
-==== Post data end""".format(req.get_full_url(), req.get_data()))
-
-    # now request the real connection
-    response = urllib2.urlopen(req)
-
-    # parse response
-    import struct
-    from cStringIO import StringIO
-
-    c = response.read(1)
-    package_count = struct.unpack("!b", c)[0]
-
-    logging.info("{0} subtitle packages found".format(package_count))
-
-    fetched_subs = []
-    for dumb_i in range(package_count):
-        c = response.read(8)
-        package_length, desc_length = struct.unpack("!II", c)
-        description = response.read(desc_length).decode("UTF-8")
-        logging.debug("Length of package {0} in bytes: {1}".format(dumb_i, package_length))
+            logging.info("Length of current package in bytes: {0}".format(package_length))
             
-        c = response.read(5)
-        package_length, file_count = struct.unpack("!IB", c)
+            c = response.read(5)
+            package_length, file_count = struct.unpack("!IB", c)
 
-        logging.info("{0} subtitles in package {1}({2})".format(file_count,dumb_i+1,description))
+            logging.info("{0} subtitles in current package ({1})".format(file_count,description))
 
-        for dumb_j in range(file_count):
+            for j in range(file_count):
+                parse_file(response)
+
+        def parse_file(response):
             c = response.read(8)
             filepack_length, ext_length = struct.unpack("!II", c)
 
-            file_ext = response.read(ext_length).decode("UTF-8")
+            file_ext = response.read(ext_length)#.decode("UTF-8")
                 
             c = response.read(4)
             file_length = struct.unpack("!I", c)[0]
             subtitle = response.read(file_length)
             if subtitle.startswith("\x1f\x8b"):
                 import gzip
-                fetched_subs.append([file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
+                from cStringIO import StringIO
+                self.subtitles.append([file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
             else:
-                logging.warning("Unknown package format in downloaded subtiltle data.")
+                logging.warning("Unknown format in downloaded subtiltle data.")
 
-    logging.info("{0} subtitle(s) fetched.".format(len(fetched_subs)))
+        # now request the real connection
+        response = urllib2.urlopen(self.req)
 
-    for i in range(len(fetched_subs)):
-        if i==0:
-            suffix = ""
-        else:
-            suffix = str(i)
-        sub_path =  "{0}{1}.{2}".format(os.path.splitext(m.fullpath)[0], suffix, fetched_subs[i][0])
-        logging.info("Saving subtitle file as {0}".format(sub_path))
-        f = open(sub_path,"wb")
-        f.write(fetched_subs[i][1])
-        f.close()
-        MPlayer.cmd("sub_load {0}".format(sub_path))
-    MPlayer.cmd("sub_file 0")
+        c = response.read(1)
+        package_count = struct.unpack("!b", c)[0]
 
+        logging.info("{0} subtitle packages found".format(package_count))
+
+        for i in range(package_count):
+            parse_package(response)
+        logging.info("{0} subtitle(s) fetched.".format(len(self.subtitles)))
+
+        for i in range(len(self.subtitles)):
+            if i==0:
+                suffix = ""
+            else:
+                suffix = str(i)
+            self.subtitles[i][0] = self.save_dir + suffix + '.' + self.subtitles[i][0]
+
+    def save(self):
+        enca = which("enca")
+        for sub in self.subtitles:
+            logging.info("Saving subtitle file {0}".format(sub[0]))
+            f = open(sub[0],"wb")
+            f.write(sub[1])
+            f.close()
+            if enca != None:
+                logging.info("Convert {0} to UTF-8".format(sub[0]))
+                Popen([enca]+"-c -x utf8 -L zh".split()+[sub[0]]).communicate()
+
+    def activate_in_mplayer(self):
+        for sub in self.subtitles:
+            MPlayer.cmd("sub_load {0}".format(sub[0]))
+        MPlayer.cmd("sub_file 0")
+
+    def __build_data(self,m):
+        def hashing(path):
+            sz = os.path.getsize(path)
+            if sz>8192:
+                import hashlib
+                f = open(path, 'rb')
+                filehash = ';'.join(map(lambda s: (f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1], (lambda l:[4096, l/3*2, l/3, l-8192])(sz)))
+                f.close()
+            else:
+                filehash = ""
+            return filehash
+
+        schemas = ["http", "https"]
+        # [www, svlayer, splayer5].shooter.cn has issues
+        servers = ["splayer1", "splayer2", "splayer3", "splayer4"]
+
+        import random
+        post_boundary = "----------------------------{0:x}".format(random.getrandbits(48))
+
+        self.url = "{0}://{1}.shooter.cn/api/subapi.php".format(random.choice(schemas), random.choice(servers))
+
+        self.header = []
+        self.header.append(["User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543))])
+        self.header.append(["Content-Type", "multipart/form-data; boundary={0}".format(post_boundary)])
+
+        data = []
+        data.append(["pathinfo", os.path.join("c:/",m.dirname,m.basename)])
+        data.append(["filehash", hashing(m.fullpath)])
+#        data.append(["lang", "chn"])
+        self.data = ""
+        for d in data:
+            self.data += """--{0}
+Content-Disposition: form-data; name="{1}"
+
+{2}
+""".format(post_boundary, d[0], d[1])
+        self.data += "--" + post_boundary + "--"
+
+        logging.debug("""Will query server {0} with
+{1}
+{2}
+""".format(self.url,self.header,self.data))
+        
 class Fifo:
     path = ""
     args = []
@@ -220,7 +245,7 @@ class MPlayer:
             MPlayer.initialized = True;
 
     @staticmethod
-    def has_support(opt):
+    def support(opt):
         support = False
         take_param = False
         if opt in MPlayer.supported_opts:
@@ -245,15 +270,10 @@ class MPlayer:
             fifo.close()
         
     @staticmethod
-    def play(args=[],f=[],timers=[]):
-        args_all = [MPlayer.path] + args + f
-        logging.debug("Final command:\n{0}".format(' '.join(args_all)))
-
+    def play(args=[],timers=[]):
         for t in timers: t.start()
-
-        p = MPlayer.instance = Popen(args_all,stdin=sys.stdin,stdout=PIPE,stderr=None)
+        p = MPlayer.instance = Popen([MPlayer.path]+args,stdin=sys.stdin,stdout=PIPE,stderr=None)
         MPlayer.tee()
-        
         for t in timers: t.cancel(); t.join()
 
     @staticmethod
@@ -339,8 +359,6 @@ class Media:
     subtitle_had = "none"
     subtitle_need_fetch = False
 
-    shooter_hash_string = ""
-    
     def __init__(self,info_input):
         """Parse the output by midentify.
         """
@@ -358,7 +376,6 @@ class Media:
         if self.is_video:
             self.__gen_video_info(info)
             self.__gen_subtitle_info(info)
-            self.__gen_shooter_info(info)
             
         self.__log()
 
@@ -382,13 +399,11 @@ Video:                  {5}""".format(self.filename,
   Aspect(display):      {2}
   Subtitles:            {3}
     Need Fetch:         {4}
-  File hash:            {5}
 """.format("{0[0]}x{0[1]}".format(self.original_dimension),
            "{0[0]}x{0[1]}".format(self.scaled_dimension),
            float(self.scaled_dimension[2]),
            self.subtitle_had,
-           self.subtitle_need_fetch,
-           self.shooter_hash_string)
+           self.subtitle_need_fetch)
         logging.debug(log_string)
 
     def __gen_meta_info(self,info):
@@ -433,34 +448,29 @@ Video:                  {5}""".format(self.filename,
         else:
             self.subtitle_need_fetch = True
 
-    def __gen_shooter_info(self,info):
-        sz = os.path.getsize(self.fullpath)
-        if sz>8192:
-            import hashlib
-            f = open(self.fullpath, 'rb')
-            self.shooter_hash_string = ';'.join(map(lambda s: (f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1], (lambda l:[4096, l/3*2, l/3, l-8192])(sz)))
-            f.close()
-
 class Launcher:
     """Command line parser and executor.
     """
     def run(self):
-        if self.__meta.role == "identifier":
-            print '\n'.join(MPlayer.identify(self.__meta.left_opts))
+        if Launcher.meta.role == "identifier":
+            print '\n'.join(MPlayer.identify(Laucher.meta.left_opts))
         else:
-            for f in self.__meta.files:
+            for f in Launcher.meta.files:
                 m = Media(MPlayer.identify([f]))
                 hooks = []
 
                 if m.exist:
                     args = Fifo.args
                     if m.is_video:
-                        args += expand_video(m, self.__meta.expand, self.__meta.screen_dim[2])
+                        args += expand_video(m, Launcher.meta.expand, Launcher.meta.screen_dim[2])
+                        sub = SubFetcher(m)
                         if dry_run == False and m.subtitle_need_fetch == True:
-                            hooks.append(threading.Timer(5.0, fetch_subtitle, (m,)))
+                            hooks.append(threading.Timer(5.0, sub.do))
 
+                    args += Launcher.meta.opts+[f]
+                    logging.debug("Final args:\n{0}".format(' '.join(args)))
                     if dry_run == False:
-                        MPlayer.play(args+self.__meta.opts,[f],hooks)
+                        MPlayer.play(args,hooks)
                 else:
                     logging.info("{0} is not a media file".format(f))
                 
@@ -478,18 +488,65 @@ class Launcher:
         files = []
 
     def __init__(self):
-        self.__meta = self.Meta()
-        self.__check_role(self.__meta)
-        if self.__meta.role != "identifier":
-            self.__meta.screen_dim = check_dimension()
-            self.__parse_args(self.__meta)
-        self.__log_meta(self.__meta)
+        def check_role(path):
+            a = os.path.basename(path)
+            if "mplayer" in a:
+                role = "player"
+            elif "midentify" in a:
+                role = "identifier"
+            else:
+                role = "unknown"
+            return role
+            
+        def check_dimension():
+            """Select the availible maximal screen dimension by xrandr.
+            """
+            dim = [640, 480, Fraction(640,480)]
+            if which("xrandr") != None:
+                p1 = Popen(["xrandr"], stdout = PIPE)
+                p2 = Popen(["grep", "*"], stdin = p1.stdout, stdout = PIPE)
+                p1.stdout.close()
+                for line in p2.communicate()[0].splitlines():
+                    t =  line.split()[0].split('x')
+                    if int(t[0]) > dim[0]:
+                        dim[0] = int(t[0])
+                        dim[1] = int(t[1])
+                dim[2] = Fraction(dim[0],dim[1])
+            return dim
 
-    @staticmethod
-    def __log_meta(meta):
-        log_string = "Run as <{0}>".format(meta.role)
-        if meta.role == "player":
-            log_string += """
+        def parse_args(meta):
+            while len(meta.left_opts)>0:
+                a = meta.left_opts.pop(0)
+                if a == "-debug":
+                    logging.root.setLevel(logging.DEBUG)
+                elif a == "-dry-run":
+                    logging.root.setLevel(logging.DEBUG)
+                    global dry_run
+                    dry_run = True
+                elif a == "-noass":
+                    meta.expand = "noass"
+                    meta.opts.append(a)
+                elif a == "--":
+                    meta.files += self.__meta.left_opts
+                    meta.left_opts = []
+                elif a[0] == "-":
+                    f = MPlayer.support(a.split('-',1)[1])
+                    if f[0] == True:
+                        meta.opts.append(a)
+                        if f[1] == True and len(meta.left_opts)>0:
+                            meta.opts.append(meta.left_opts.pop(0))
+                        else:
+                            # option not supported by mplayer, silently ignore it
+                            meta.invalid_opts.append(a)
+                else:
+                    meta.files.append(a)
+            if len(meta.files) != 1:
+                meta.continuous = False
+
+        def info(meta):
+            log_string = "Run as <{0}>".format(meta.role)
+            if meta.role == "player":
+                log_string += """
 Command line options:
   Unpassed:             {0}
   Bypassed:             {1}
@@ -513,51 +570,22 @@ Features:
            meta.resume,
            meta.continuous)
 
-        logging.debug(log_string)
+            logging.debug(log_string)
 
-    @staticmethod
-    def __check_role(meta):
-        a = os.path.basename(sys.argv.pop(0))
-        if a == "mplayer":
-            meta.role = "player"
-        elif a == "midentify":
-            meta.role = "identifier"
-        meta.left_opts = sys.argv
-            
-    @staticmethod
-    def __parse_args(meta):
-        while len(meta.left_opts)>0 :
-            a = meta.left_opts.pop(0)
+        # init Launcher meta infos
+        Launcher.meta = Launcher.Meta()
+        Launcher.meta.role = check_role(sys.argv.pop(0))
+        Launcher.meta.left_opts = sys.argv
 
-            if a == "-debug":
-                logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.DEBUG)
-            elif a == "-dry-run":
-                logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.DEBUG)
-                global dry_run
-                dry_run = True
-            elif a == "-noass":
-                meta.expand = "noass"
-                meta.opts.append(a)
-            elif a == "--":
-                meta.files += self.__meta.left_opts
-                meta.left_opts = []
-            elif a[0] == "-":
-                f = mplayer.check_opt(a.split('-',1)[1])
-                if f[0] == True:
-                    meta.opts.append(a)
-                    if f[1] == True and len(meta.left_opts)>0:
-                        meta.opts.append(meta.left_opts.pop(0))
-                else:
-                    # option not supported by mplayer, silently ignore it
-                    meta.invalid_opts.append(a)
-            else:
-                meta.files.append(a)
+        if Launcher.meta.role != "identifier":
+            Launcher.meta.screen_dim = check_dimension()
+            parse_args(Launcher.meta)
 
-        if len(meta.files) != 1:
-            meta.continuous = False
+        info(Launcher.meta)
 
 # main
 dry_run = False
+logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
 dump_f = Fifo()
 MPlayer()

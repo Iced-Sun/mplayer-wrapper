@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/03 11:47:48>
+# Time-stamp: <subi 2011/11/03 12:33:25>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -101,6 +101,8 @@ def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
         args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],target_aspect)
     return args.split()
 
+# TODO: should split to several functions
+# e.g. use class
 def fetch_subtitle(m):
     """Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
     """
@@ -151,6 +153,7 @@ Content-Disposition: form-data; name="{1}"
         c = response.read(8)
         package_length, desc_length = struct.unpack("!II", c)
         description = response.read(desc_length).decode("UTF-8")
+        logging.debug("Length of package {0} in bytes: {1}".format(dumb_i, package_length))
             
         c = response.read(5)
         package_length, file_count = struct.unpack("!IB", c)
@@ -184,11 +187,12 @@ Content-Disposition: form-data; name="{1}"
         f = open(sub_path,"wb")
         f.write(fetched_subs[i][1])
         f.close()
-    MPlayer.cmd("sub_load {0}".format(sub_path))
-    MPlayer.cmd("sub_file {0}".format(sub_path))
+        MPlayer.cmd("sub_load {0}".format(sub_path))
+    MPlayer.cmd("sub_file 0")
 
 class Fifo:
     path = ""
+    args = []
     __tmpdir = ""
     __initialized = False
     def __init__(self):
@@ -197,12 +201,15 @@ class Fifo:
             Fifo.__tmpdir = tempfile.mkdtemp()
             Fifo.path = os.path.join(Fifo.__tmpdir, 'mplayer_fifo')
             os.mkfifo(Fifo.path)
+            Fifo.args = "-input file={0}".format(Fifo.path).split()
             Fifo.__initialized = True
     def __del__(self):
         if Fifo.__initialized:
             os.unlink(Fifo.path)
             os.rmdir(Fifo.__tmpdir)
-        Fifo.__initialized = False
+            Fifo.path = ""
+            Fifo.args = []
+            Fifo.__initialized = False
     
 class MPlayer:
     # TODO: "not compiled in option"
@@ -232,17 +239,19 @@ class MPlayer:
     @staticmethod
     def cmd(cmd_string):
         if MPlayer.instance.poll() == None:
-            logging.debug("Sending command <{0}> to <{1}>".format(cmd_string, filename))
-            fifo = open(filename,"w")
+            logging.debug("Sending command <{0}> to <{1}>".format(cmd_string, Fifo.path))
+            fifo = open(Fifo.path,"w")
             fifo.write(cmd_string+'\n')
             fifo.close()
         
     @staticmethod
     def play(args=[],f=[],timers=[]):
+        args_all = [MPlayer.path] + args + f
+        logging.debug("Final command:\n{0}".format(' '.join(args_all)))
+
         for t in timers: t.start()
 
-        p = MPlayer.instance = Popen([MPlayer.path]+args+f,stdin=sys.stdin,stdout=PIPE,stderr=None)
-#        p = MPlayer.instance = Popen([MPlayer.path]+["-input"]+["file={0}".format(filename)]+args+f,stdin=sys.stdin,stdout=PIPE,stderr=None)
+        p = MPlayer.instance = Popen(args_all,stdin=sys.stdin,stdout=PIPE,stderr=None)
         MPlayer.tee()
         
         for t in timers: t.cancel(); t.join()
@@ -444,13 +453,12 @@ class Launcher:
                 hooks = []
 
                 if m.exist:
-                    args = []
+                    args = Fifo.args
                     if m.is_video:
                         args += expand_video(m, self.__meta.expand, self.__meta.screen_dim[2])
                         if dry_run == False and m.subtitle_need_fetch == True:
                             hooks.append(threading.Timer(5.0, fetch_subtitle, (m,)))
 
-                    logging.debug("Args for mplayer:\n{0}".format(' '.join(args+[f])))
                     if dry_run == False:
                         MPlayer.play(args+self.__meta.opts,[f],hooks)
                 else:
@@ -551,8 +559,6 @@ Features:
 # main
 dry_run = False
 
-Fifo()
+dump_f = Fifo()
 MPlayer()
 Launcher().run()
-
-

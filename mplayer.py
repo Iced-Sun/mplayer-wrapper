@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/02 17:48:29>
+# Time-stamp: <subi 2011/11/03 10:21:27>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -23,7 +23,7 @@
 # Foundation Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
 # USA
 
-import os, sys, re, threading, logging
+import os, sys, threading, logging
 from subprocess import *
 from fractions import Fraction
 
@@ -210,13 +210,28 @@ class MPlayer:
             t.start()
 
         p = Popen([MPlayer.path]+args+f,stdin=sys.stdin,stdout=PIPE,stderr=None)
+        line = ""
         while p.poll() == None:
-            o = p.stdout.read(1)
-            sys.stdout.write(o)
-            sys.stdout.flush()
-
+            c = p.stdout.read(1)
+            if c == '\r':
+                d = p.stdout.read(1)
+                if d == '\n':
+                    line += '\r\n'
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                    line = ""
+                else:
+                    line += '\r'
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                    line = d
+            else:
+                line += c
+        sys.stdout.write(line)
+        
         for t in timers:
             t.cancel()
+            t.join()
         
     @staticmethod
     def init():
@@ -309,7 +324,7 @@ class Media:
         self.__log()
 
     def __log(self):
-        log_string = """ Media info for {0}
+        log_string = """{0}
 Path:
   Fullpath:             {1}
   Base name:            {2}
@@ -505,8 +520,21 @@ Features:
 
 # main
 dry_run = False
+""""
+import tempfile
+
+tmpdir = tempfile.mkdtemp()
+filename = os.path.join(tmpdir, 'mplayer_fifo')
+print filename
+
+os.mkfifo(filename)
+fifo = open(filename, 'w')
+
+fifo.close()
+
+os.unlink(filename)
+os.rmdir(tmpdir)
+"""
 
 MPlayer.init()
 Launcher().run()
-
-

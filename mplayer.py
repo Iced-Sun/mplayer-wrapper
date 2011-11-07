@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/03 16:49:04>
+# Time-stamp: <subi 2011/11/07 13:26:41>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -28,22 +28,20 @@ import struct, urllib2
 from subprocess import *
 from fractions import Fraction
 
-def which(program):
+def which(cmd):
     """Mimic the shell command "which".
     """
-    def is_exe(fpath):
-        return os.path.exists(fpath) and os.access(fpath, os.X_OK)
+    def exefy(fullpath):
+        return fullpath if os.path.exists(fullpath) and os.access(fullpath, os.X_OK) else None
 
-    fpath, fname = os.path.split(program)
-    if fpath:
-        if is_exe(program):
-            return program
+    pdir, dumb = os.path.split(cmd)
+    if pdir:
+        fullpath = exefy(cmd)
     else:
         for path in os.environ["PATH"].split(os.pathsep):
-            exe_file = os.path.join(path, program)
-            if is_exe(exe_file):
-                return exe_file
-    return None
+            fullpath = exefy(os.path.join(path,cmd))
+            if fullpath: break
+    return fullpath
 
 def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
     # scale to video width which is never modified

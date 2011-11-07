@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/07 17:30:51>
+# Time-stamp: <subi 2011/11/07 17:48:18>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -157,9 +157,9 @@ class SubFetcher:
             f = open(sub[0],"wb")
             f.write(sub[1])
             f.close()
-            if enca != None:
+            if enca:
                 logging.info("Convert {0} to UTF-8".format(sub[0]))
-                Popen([enca]+"-c -x utf8 -L zh".split()+[sub[0]]).communicate()
+                Popen("enca -c -x utf8 -L zh".split()+[sub[0]]).communicate()
 
     def activate_in_mplayer(self):
         for sub in self.subtitles:
@@ -270,7 +270,6 @@ class MPlayer:
     @staticmethod
     def tee(f=sys.stdout):
         p = MPlayer.instance
-
         while p.poll() == None:
             c = p.stdout.read(1)
             f.write(c)
@@ -388,10 +387,7 @@ Video:                  {5}""".format(self.filename,
         self.name,ext = os.path.splitext(self.basename)
 
         self.seekable = (info["ID_SEEKABLE"] == "1")
-        if "ID_VIDEO_ID" in info:
-            self.is_video = True
-        else:
-            self.is_video = False
+        self.is_video = True if "ID_VIDEO_ID" in info else False
         
     def __gen_video_info(self,info):
         self.original_dimension[0] = int(info["ID_VIDEO_WIDTH"])
@@ -477,7 +473,7 @@ class Launcher:
             """Select the availible maximal screen dimension by xrandr.
             """
             dim = [640, 480, Fraction(640,480)]
-            if which("xrandr") != None:
+            if which("xrandr"):
                 p1 = Popen(["xrandr"], stdout = PIPE)
                 p2 = Popen(["grep", "*"], stdin = p1.stdout, stdout = PIPE)
                 p1.stdout.close()

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/07 17:24:25>
+# Time-stamp: <subi 2011/11/07 17:28:54>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -426,10 +426,9 @@ class Launcher:
     def run(self):
         if Launcher.meta.role == "identifier":
             print '\n'.join(MPlayer.identify(Laucher.meta.left_opts))
+        elif len(Launcher.meta.files)==0:
+            MPlayer.play()
         else:
-            if len(Launcher.meta.files)==0:
-                MPlayer.play()
-                
             for f in Launcher.meta.files:
                 m = Media(MPlayer.identify([f]))
                 hooks = []

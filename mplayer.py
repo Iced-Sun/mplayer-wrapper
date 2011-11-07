@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/07 13:30:04>
+# Time-stamp: <subi 2011/11/07 14:49:55>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -52,7 +52,6 @@ def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
     elif m.scaled_dimension[2] < Fraction(4,3) :
         args = "-vf-pre dsize=4/3"
     elif method == "ass":
-        # ass is total mess
         # 3 aspects: video, screen, and PlayResX:PlayResY
         # mplayer use PlayResX = 336 as default, so do we
 
@@ -148,10 +147,7 @@ class SubFetcher:
         logging.info("{0} subtitle(s) fetched.".format(len(self.subtitles)))
 
         for i in range(len(self.subtitles)):
-            if i==0:
-                suffix = ""
-            else:
-                suffix = str(i)
+            suffix = str(i) if i>0 else ""
             self.subtitles[i][0] = self.save_dir + suffix + '.' + self.subtitles[i][0]
 
     def save(self):
@@ -244,12 +240,7 @@ class MPlayer:
 
     @staticmethod
     def support(opt):
-        support = False
-        take_param = False
-        if opt in MPlayer.supported_opts:
-            support = True
-            take_param = MPlayer.supported_opts[opt]
-        return [support, take_param]
+        return [True,MPlayer.supported_opts[opt]] if opt in MPlayer.supported_opts else [False,False]
 
     @staticmethod
     def identify(filelist=[]):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/07 13:26:41>
+# Time-stamp: <subi 2011/11/07 13:30:04>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -34,7 +34,7 @@ def which(cmd):
     def exefy(fullpath):
         return fullpath if os.path.exists(fullpath) and os.access(fullpath, os.X_OK) else None
 
-    pdir, dumb = os.path.split(cmd)
+    pdir = os.path.split(cmd)[0]
     if pdir:
         fullpath = exefy(cmd)
     else:
@@ -456,7 +456,7 @@ class Launcher:
             for f in Launcher.meta.files:
                 m = Media(MPlayer.identify([f]))
                 hooks = []
-
+                
                 if m.exist:
                     args = Fifo.args
                     if m.is_video:
@@ -470,7 +470,7 @@ class Launcher:
                     if dry_run == False:
                         MPlayer.play(args,hooks)
                 else:
-                    logging.info("{0} is not a media file".format(f))
+                    logging.info("{0} does not exist".format(f))
                 
     class Meta:
         # features

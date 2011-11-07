@@ -4,17 +4,18 @@ mplayer-wrapper是MPlayer的一个简单的命令行前端。在实现一些功�
 
 ** 功能
 *** 视频填充
-    对视频的顶端和底端用黑边进行填充，从而使得字幕和OSD能够显示在黑边
-    上（而不是覆盖在画面上，[[http://gosubi.me/adow/2010/02/mplayer-reloaded/][查看截图]]）。
+    对视频的顶端和底端用黑边进行填充，使得字幕和OSD能够显示在黑边上（而
+    不是覆盖在画面上，[[http://gosubi.me/adow/2010/02/mplayer-reloaded/][查看截图]]）。
 
     通过mplayer的-vf expand或-ass-use-margins实现。
 
 *** 字体大小和位置自适应
-    如果使用mplayer原生的字幕渲染，通过subfont-scale和subpos选项可以比
-    较容易的控制字体大小和位置。
+    如果使用mplayer原生的字幕渲染，通过subfont-scale和subpos选项可以容
+    易的控制字体大小和位置；因此把相应的值写到~/.mplayer/config中就可
+    以。
 
-    如果使用libass字幕渲染，则需要计算PlayResX等ass参数，因此这一功能
-    只在python版中实现。
+    如果使用libass字幕渲染，需要动态计算PlayResX等ass参数，这一功能只在
+    python版中进行了实现。
 
 *** 字幕自动下载
     对于没有文本字幕的视频，自动从[[http://shooter.cn][射手网]]进行查询和下载。
@@ -22,6 +23,9 @@ mplayer-wrapper是MPlayer的一个简单的命令行前端。在实现一些功�
     Python版使用的是射手网的subapi，即通过视频文件本身的hash来查询字幕，
     结果精确；但缺点是由于负载原因，射手网只提供了中文字幕，因此需要英
     文字幕的就是能手动上网搜索下载了。
+
+    另外，Python版如果检测到安装了enca，会把下载的字幕转换成UTF-8后保
+    存。
 
     Bash版用的是射手网的webapi，通过文件名向射手网查询字幕（效果和手动
     上网搜索是一样的）；但因为各种原因，无法做到足够智能，因此只能支持

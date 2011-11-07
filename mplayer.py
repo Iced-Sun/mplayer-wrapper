@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/07 14:49:55>
+# Time-stamp: <subi 2011/11/07 16:18:08>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -240,8 +240,10 @@ class MPlayer:
 
     @staticmethod
     def support(opt):
-        return [True,MPlayer.supported_opts[opt]] if opt in MPlayer.supported_opts else [False,False]
-
+        # 0: supported, take no param
+        # 1: supported, take 1 param
+        return MPlayer.supported_opts[opt] if opt in MPlayer.supported_opts else None
+    
     @staticmethod
     def identify(filelist=[]):
         result = []
@@ -303,29 +305,23 @@ class MPlayer:
 
     @staticmethod
     def query_supported_opts():
-        for line in Popen([MPlayer.path, "-list-options"], stdout=PIPE).communicate()[0].splitlines():
+        options = Popen([MPlayer.path, "-list-options"], stdout=PIPE).communicate()[0].splitlines()
+        options = options[3:len(options)-3]
+
+        for line in options:
             s = line.split();
-            if len(s) < 7:
-                continue
-            if s[len(s)-1] == "Yes" or s[len(s)-1] == "No":
-                opt = s[0].split(":") # take care of option:suboption
-                if opt[0] in MPlayer.supported_opts:
-                    continue
-                if len(opt) == 2:
-                    take_param = True
-                elif s[1] != "Flag":
-                    take_param = True
-                else:
-                    take_param = False
-                MPlayer.supported_opts[opt[0]] = take_param
+            opt = s[0].split(":") # take care of option:suboption
+            if opt[0] in MPlayer.supported_opts: continue
+            MPlayer.supported_opts[opt[0]] = (1 if len(opt)==2 or s[1] != "Flag" else 0)
+
         # handle vf* af*: mplayer reports option name as vf*, while it
         # is a family of options.
         del MPlayer.supported_opts['af*']
         del MPlayer.supported_opts['vf*']
         for extra in ["af","af-adv","af-add","af-pre","af-del","vf","vf-add","vf-pre","vf-del"]:
-            MPlayer.supported_opts[extra] = True
+            MPlayer.supported_opts[extra] = 1
         for extra in ["af-clr","vf-clr"]:
-            MPlayer.supported_opts[extra] = False
+            MPlayer.supported_opts[extra] = 0
 
 class Media:
     """Construct media metadata by midentify; may apply "proper" fixes
@@ -520,13 +516,13 @@ class Launcher:
                     meta.left_opts = []
                 elif a[0] == "-":
                     f = MPlayer.support(a.split('-',1)[1])
-                    if f[0] == True:
+                    if f:
                         meta.opts.append(a)
-                        if f[1] == True and len(meta.left_opts)>0:
+                        if f == 1 and len(meta.left_opts)>0:
                             meta.opts.append(meta.left_opts.pop(0))
-                        else:
-                            # option not supported by mplayer, silently ignore it
-                            meta.invalid_opts.append(a)
+                    else:
+                        # option not supported by mplayer, silently ignore it
+                        meta.invalid_opts.append(a)
                 else:
                     meta.files.append(a)
             if len(meta.files) != 1:

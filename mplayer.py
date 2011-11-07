@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/07 16:18:08>
+# Time-stamp: <subi 2011/11/07 17:24:25>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -263,32 +263,19 @@ class MPlayer:
     @staticmethod
     def play(args=[],timers=[]):
         for t in timers: t.start()
-        p = MPlayer.instance = Popen([MPlayer.path]+args,stdin=sys.stdin,stdout=PIPE,stderr=None)
+        MPlayer.instance = Popen([MPlayer.path]+args,stdin=sys.stdin,stdout=PIPE,stderr=None)
         MPlayer.tee()
         for t in timers: t.cancel(); t.join()
 
     @staticmethod
     def tee(f=sys.stdout):
         p = MPlayer.instance
-        line = ""
+
         while p.poll() == None:
             c = p.stdout.read(1)
-            if c == '\r':
-                d = p.stdout.read(1)
-                if d == '\n':
-                    line += '\r\n'
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
-                    line = ""
-                else:
-                    line += '\r'
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
-                    line = d
-            else:
-                line += c
-        sys.stdout.write(line)
-        
+            f.write(c)
+        f.write(p.stdout.read())
+
     ## internal
     initialized = False
     instance = None
@@ -440,6 +427,9 @@ class Launcher:
         if Launcher.meta.role == "identifier":
             print '\n'.join(MPlayer.identify(Laucher.meta.left_opts))
         else:
+            if len(Launcher.meta.files)==0:
+                MPlayer.play()
+                
             for f in Launcher.meta.files:
                 m = Media(MPlayer.identify([f]))
                 hooks = []

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/07 17:28:54>
+# Time-stamp: <subi 2011/11/07 17:30:51>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -274,6 +274,7 @@ class MPlayer:
         while p.poll() == None:
             c = p.stdout.read(1)
             f.write(c)
+            f.flush()
         f.write(p.stdout.read())
 
     ## internal

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/07 17:48:18>
+# Time-stamp: <subi 2011/11/07 18:00:06>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -472,17 +472,15 @@ class Launcher:
         def check_dimension():
             """Select the availible maximal screen dimension by xrandr.
             """
-            dim = [640, 480, Fraction(640,480)]
+            dim = [640, 480]
             if which("xrandr"):
-                p1 = Popen(["xrandr"], stdout = PIPE)
-                p2 = Popen(["grep", "*"], stdin = p1.stdout, stdout = PIPE)
-                p1.stdout.close()
-                for line in p2.communicate()[0].splitlines():
-                    t =  line.split()[0].split('x')
-                    if int(t[0]) > dim[0]:
-                        dim[0] = int(t[0])
-                        dim[1] = int(t[1])
-                dim[2] = Fraction(dim[0],dim[1])
+                p = Popen(["xrandr"], stdout = PIPE)
+                for line in p.communicate()[0].splitlines():
+                    if '*' in line:
+                        d =  line.split()[0].split('x')
+                        if d[0] > dim[0]: dim = map(int,d)
+
+            dim.append(Fraction(dim[0],dim[1]))
             return dim
 
         def parse_args(meta):

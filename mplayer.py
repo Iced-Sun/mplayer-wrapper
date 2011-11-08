@@ -1,7 +1,8 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/07 18:00:06>
+# Time-stamp: <subi 2011/11/08 20:24:22>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python,
 # trying to be a transparent interface. It is convenient to rename the
@@ -23,7 +24,8 @@
 # Foundation Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
 # USA
 
-import os, sys, threading, logging
+import os, sys, threading
+import re, logging
 import struct, urllib2
 from subprocess import *
 from fractions import Fraction
@@ -82,6 +84,61 @@ def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
         # -vf expand does its own non-square pixel adjustment
         args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],target_aspect)
     return args.split()
+
+class NaturalSorter:
+    @staticmethod
+    def translate(s):
+        chinese_numbers = dict(zip(u'零〇一二三四五六七八九','00123456789'))
+
+        import locale
+        loc = locale.getdefaultlocale()
+        s = s.decode(loc[1])
+        return ''.join([chinese_numbers.get(c,c) for c in s]).encode(loc[1])
+
+    @staticmethod
+    def split_by_int(s):
+        return filter(lambda x: x!='', [sub for sub in re.split('(\d+)', NaturalSorter.translate(s))])
+
+    @staticmethod
+    def make_sort_key(s):
+        return [(int(sub) if sub.isdigit() else sub) for sub in NaturalSorter.split_by_int(s)]
+
+    @staticmethod
+    def strip_to_int(s,prefix):
+        s = s.partition(prefix)[2] if prefix!='' else s
+        s = NaturalSorter.split_by_int(s)[0]
+        return int(s) if s.isdigit() else float('NaN')
+
+def generate_filelist(path):
+    fullpath = os.path.abspath(path)
+    dirname, basename = os.path.split(fullpath)
+    files = os.listdir(dirname)
+
+    # filter by extention
+    root, ext = os.path.splitext(basename)
+    files = filter(lambda f: f.endswith(ext), files)
+
+    # sort the filelist and remove alphabetical header
+    files.sort(key=NaturalSorter.make_sort_key)
+    del files[0:files.index(basename)]
+
+    # find the common prefix
+    keys = map(lambda f: NaturalSorter.split_by_int(f),files[0:2])
+    prefix = ""
+    for key in zip(keys[0],keys[1]):
+        if key[0] == key[1]: prefix += key[0]
+        else: break
+
+    # generate the list
+    result = [files[0]]
+    for i,f in enumerate(files[1:]):
+        if not prefix in f: break
+        if NaturalSorter.strip_to_int(f,prefix) - NaturalSorter.strip_to_int(files[i],prefix) == 1:
+            result += [f]
+        else:
+            break
+
+    return result
 
 class SubFetcher:
     """Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
@@ -450,7 +507,6 @@ class Launcher:
         role = "player"
         expand = "ass"
         resume = True
-        continuous = True
         # meta-info
         screen_dim = []
         opts = []
@@ -509,8 +565,9 @@ class Launcher:
                         meta.invalid_opts.append(a)
                 else:
                     meta.files.append(a)
-            if len(meta.files) != 1:
-                meta.continuous = False
+
+            if len(meta.files) == 1:
+                meta.files = generate_filelist(meta.files[0])
 
         def info(meta):
             log_string = "Run as <{0}>".format(meta.role)
@@ -528,7 +585,6 @@ Screen:
 Features:
   Video expanding:      {6}
   Resume player:        {7}
-  Continuous playing:   {8}
 """.format(' '.join(meta.left_opts),
            ' '.join(meta.opts),
            ' '.join(meta.invalid_opts),
@@ -536,8 +592,7 @@ Features:
            "{0[0]}x{0[1]}".format(meta.screen_dim),
            "{0.numerator}:{0.denominator}".format(meta.screen_dim[2]),
            meta.expand,
-           meta.resume,
-           meta.continuous)
+           meta.resume)
 
             logging.debug(log_string)
 

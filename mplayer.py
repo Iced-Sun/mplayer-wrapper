@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/09 12:40:25>
+# Time-stamp: <subi 2011/11/09 12:49:28>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -457,18 +457,18 @@ class Launcher:
                 m = Media(MPlayer.identify([f]))
                 hooks = []
 
-                if m.exist:
-                    args = []
-                    if m.is_video:
-                        args += expand_video(m, Launcher.meta.expand, Launcher.meta.screen_dim[2])
-                        sub = SubFetcher(m)
-                        if m.subtitle_need_fetch == True:
-                            hooks.append(threading.Timer(5.0, sub.do))
-
-                    args += Launcher.meta.opts+[f]
-                    MPlayer.play(args,hooks)
-                else:
+                if not m.exist:
                     logging.info("{0} does not exist".format(f))
+                    continue
+
+                args = []
+                if m.is_video:
+                    args += expand_video(m, Launcher.meta.expand, Launcher.meta.screen_dim[2])
+                    sub = SubFetcher(m)
+                    if m.subtitle_need_fetch == True:
+                        hooks.append(threading.Timer(5.0, sub.do))
+                args += Launcher.meta.opts+[f]
+                MPlayer.play(args,hooks)
                 
     class Meta:
         # features

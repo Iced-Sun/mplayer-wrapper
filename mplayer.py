@@ -1,32 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com> 
-# Time-stamp: <subi 2011/11/08 20:24:22>
+# Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
+# Time-stamp: <subi 2011/11/09 11:28:48>
 #
-# mplayer-wrapper is a simple frontend for MPlayer written in Python,
-# trying to be a transparent interface. It is convenient to rename the
-# script to "mplayer" and place it in your $PATH (don't overwrite the
-# real MPlayer); you would not even notice its existence.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 2 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
-# USA
+# mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
+# be a transparent interface. It is convenient to rename the script to "mplayer"
+# and place it in your $PATH (don't overwrite the real MPlayer); you would not
+# even notice its existence.
 
-import os, sys, threading
-import re, logging
-import struct, urllib2
+import os, sys, threading, logging
 from subprocess import *
 from fractions import Fraction
 
@@ -97,6 +80,7 @@ class NaturalSorter:
 
     @staticmethod
     def split_by_int(s):
+        import re
         return filter(lambda x: x!='', [sub for sub in re.split('(\d+)', NaturalSorter.translate(s))])
 
     @staticmethod
@@ -130,19 +114,20 @@ def generate_filelist(path):
         else: break
 
     # generate the list
-    result = [files[0]]
+    result = [os.path.join(dirname,files[0])]
     for i,f in enumerate(files[1:]):
         if not prefix in f: break
         if NaturalSorter.strip_to_int(f,prefix) - NaturalSorter.strip_to_int(files[i],prefix) == 1:
-            result += [f]
+            result += [os.path.join(dirname,f)]
         else:
             break
-
+    
     return result
 
 class SubFetcher:
     """Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
     """
+    import struct, urllib2
     subtitles = []
     save_dir = ""
 
@@ -475,20 +460,21 @@ Video:                  {5}""".format(self.filename,
             self.subtitle_need_fetch = True
 
 class Launcher:
-    """Command line parser and executor.
+    """Command line parser.
+    Laucher.meta is a static member that store the infomation of execution environment for mplayer.
     """
     def run(self):
         if Launcher.meta.role == "identifier":
-            print '\n'.join(MPlayer.identify(Laucher.meta.left_opts))
+            print '\n'.join(MPlayer.identify(Launcher.meta.left_opts))
         elif len(Launcher.meta.files)==0:
             MPlayer.play()
         else:
             for f in Launcher.meta.files:
                 m = Media(MPlayer.identify([f]))
                 hooks = []
-                
+
                 if m.exist:
-                    args = Fifo.args
+                    args = Fifo.args[:]
                     if m.is_video:
                         args += expand_video(m, Launcher.meta.expand, Launcher.meta.screen_dim[2])
                         sub = SubFetcher(m)
@@ -607,10 +593,10 @@ Features:
 
         info(Launcher.meta)
 
-# main
-dry_run = False
-logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
+if __name__ == "__main__":
+    dry_run = False
+    logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
-dump_f = Fifo()
-MPlayer()
-Launcher().run()
+    dump_f = Fifo()
+    MPlayer()
+    Launcher().run()

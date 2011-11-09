@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/09 13:05:17>
+# Time-stamp: <subi 2011/11/09 15:11:57>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -103,7 +103,6 @@ def generate_filelist(path):
     # find the common prefix
     keys = map(lambda f: split_by_int(f),files[0:2])
     prefix = ""
-    print keys
     for key in zip(keys[0],keys[1]):
         if key[0] == key[1]: prefix += key[0]
         else: break
@@ -244,6 +243,9 @@ Content-Disposition: form-data; name="{1}"
 """.format(self.url,self.header,self.data))
         
 class MPlayer:
+    last_timestamp = 0.0
+    last_exit_status = None
+    
     # TODO: "not compiled in option"
     def __init__(self):
         """Initialize ONCE.
@@ -295,22 +297,42 @@ class MPlayer:
             return
 
         for t in timers: t.start()
-        MPlayer.instance = Popen(args,stdin=sys.stdin,stdout=PIPE,stderr=None)
+        MPlayer.instance = Popen(args, stdin=sys.stdin, stdout=PIPE, stderr=None)
         MPlayer.tee()
         for t in timers: t.cancel(); t.join()
 
     @staticmethod
     def tee(f=sys.stdout):
-        p = MPlayer.instance
-        while p.poll() == None:
-            c = p.stdout.read(1)
-            f.write(c)
+        def flush(f,line):
+            if line.startswith(('A:','V:')):
+                MPlayer.last_timestamp = float(line[2:9])
+            if line.startswith('Exiting...'):
+                MPlayer.last_exit_status = line[12:len(line)-2]
+            f.write(line)
             f.flush()
-        f.write(p.stdout.read())
+            
+        p = MPlayer.instance
+        line = ""
+        while True:
+            c = p.stdout.read(1)
+            line += c
+            if c == '\n':
+                flush(f,line)
+                line = ""
+            elif c == '\r':
+                d = p.stdout.read(1)
+                if d == '\n':
+                    line += '\n'
+                    flush(f,line)
+                    line = ""
+                else:
+                    flush(f,line)
+                    line = d
+            elif c == '':
+                break
 
     ## internal
     initialized = False
-    instance = None
     path = ""
     supported_opts = {}
 
@@ -470,6 +492,9 @@ class Launcher:
                         hooks.append(threading.Timer(5.0, sub.do))
                 args += Launcher.meta.opts+[f]
                 MPlayer.play(args,hooks)
+
+                if MPlayer.last_exit_status == "Quit":
+                    break
                 
     class Meta:
         # features
@@ -582,5 +607,4 @@ Features:
 if __name__ == "__main__":
     dry_run = False
     logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
-
     Launcher().run()

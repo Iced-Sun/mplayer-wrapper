@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/09 11:28:48>
+# Time-stamp: <subi 2011/11/09 11:36:17>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -68,32 +68,23 @@ def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
         args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],target_aspect)
     return args.split()
 
-class NaturalSorter:
-    @staticmethod
+def generate_filelist(path):
+    import locale,re
     def translate(s):
         chinese_numbers = dict(zip(u'零〇一二三四五六七八九','00123456789'))
 
-        import locale
         loc = locale.getdefaultlocale()
         s = s.decode(loc[1])
         return ''.join([chinese_numbers.get(c,c) for c in s]).encode(loc[1])
-
-    @staticmethod
     def split_by_int(s):
-        import re
-        return filter(lambda x: x!='', [sub for sub in re.split('(\d+)', NaturalSorter.translate(s))])
-
-    @staticmethod
+        return filter(lambda x: x!='', [sub for sub in re.split('(\d+)', translate(s))])
     def make_sort_key(s):
-        return [(int(sub) if sub.isdigit() else sub) for sub in NaturalSorter.split_by_int(s)]
-
-    @staticmethod
+        return [(int(sub) if sub.isdigit() else sub) for sub in split_by_int(s)]
     def strip_to_int(s,prefix):
         s = s.partition(prefix)[2] if prefix!='' else s
-        s = NaturalSorter.split_by_int(s)[0]
+        s = split_by_int(s)[0]
         return int(s) if s.isdigit() else float('NaN')
 
-def generate_filelist(path):
     fullpath = os.path.abspath(path)
     dirname, basename = os.path.split(fullpath)
     files = os.listdir(dirname)

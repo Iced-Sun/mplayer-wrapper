@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/09 11:43:06>
+# Time-stamp: <subi 2011/11/09 11:51:12>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -278,8 +278,7 @@ class MPlayer:
     def identify(filelist=[]):
         result = []
         p = Popen([MPlayer.path]+"-vo null -ao null -frames 0 -identify".split()+filelist, stdout=PIPE, stderr=PIPE)
-        for line in p.communicate()[0].splitlines():
-            if line.startswith("ID_"): result.append(line)
+        result = filter(lambda l: l.startswith("ID_"), p.communicate()[0].splitlines())
         return result
 
     @staticmethod
@@ -350,7 +349,6 @@ class Media:
     
     basename = ""
     dirname = "" 
-    name = ""
    
     seekable = True
     is_video = False
@@ -414,7 +412,6 @@ Video:                  {5}""".format(self.filename,
         self.fullpath = os.path.realpath(self.filename)
         self.basename = os.path.basename(self.fullpath)
         self.dirname = os.path.basename(os.path.dirname(self.fullpath))
-        self.name,ext = os.path.splitext(self.basename)
 
         self.seekable = (info["ID_SEEKABLE"] == "1")
         self.is_video = True if "ID_VIDEO_ID" in info else False

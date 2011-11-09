@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/09 11:36:17>
+# Time-stamp: <subi 2011/11/09 11:43:06>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -85,31 +85,28 @@ def generate_filelist(path):
         s = split_by_int(s)[0]
         return int(s) if s.isdigit() else float('NaN')
 
-    fullpath = os.path.abspath(path)
-    dirname, basename = os.path.split(fullpath)
-    files = os.listdir(dirname)
+    pdir, basename = os.path.split(os.path.abspath(path))
 
     # filter by extention
-    root, ext = os.path.splitext(basename)
-    files = filter(lambda f: f.endswith(ext), files)
+    files = filter(lambda f: f.endswith(os.path.splitext(basename)[1]), os.listdir(pdir))
 
     # sort the filelist and remove alphabetical header
-    files.sort(key=NaturalSorter.make_sort_key)
+    files.sort(key=make_sort_key)
     del files[0:files.index(basename)]
 
     # find the common prefix
-    keys = map(lambda f: NaturalSorter.split_by_int(f),files[0:2])
+    keys = map(lambda f: split_by_int(f),files[0:2])
     prefix = ""
     for key in zip(keys[0],keys[1]):
         if key[0] == key[1]: prefix += key[0]
         else: break
 
     # generate the list
-    result = [os.path.join(dirname,files[0])]
+    result = [os.path.join(pdir,files[0])]
     for i,f in enumerate(files[1:]):
         if not prefix in f: break
-        if NaturalSorter.strip_to_int(f,prefix) - NaturalSorter.strip_to_int(files[i],prefix) == 1:
-            result += [os.path.join(dirname,f)]
+        if strip_to_int(f,prefix) - strip_to_int(files[i],prefix) == 1:
+            result.append(os.path.join(pdir,f))
         else:
             break
     

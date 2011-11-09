@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/09 11:51:12>
+# Time-stamp: <subi 2011/11/09 12:40:25>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -239,34 +239,28 @@ Content-Disposition: form-data; name="{1}"
 {2}
 """.format(self.url,self.header,self.data))
         
-class Fifo:
-    path = ""
-    args = []
-    __tmpdir = ""
-    __initialized = False
-    def __init__(self):
-        if not Fifo.__initialized:
-            import tempfile
-            Fifo.__tmpdir = tempfile.mkdtemp()
-            Fifo.path = os.path.join(Fifo.__tmpdir, 'mplayer_fifo')
-            os.mkfifo(Fifo.path)
-            Fifo.args = "-input file={0}".format(Fifo.path).split()
-            Fifo.__initialized = True
-    def __del__(self):
-        if Fifo.__initialized:
-            os.unlink(Fifo.path)
-            os.rmdir(Fifo.__tmpdir)
-            Fifo.path = ""
-            Fifo.args = []
-            Fifo.__initialized = False
-    
 class MPlayer:
     # TODO: "not compiled in option"
     def __init__(self):
+        """Initialize ONCE.
+        """
         if not MPlayer.initialized:
             MPlayer.probe_mplayer()
             MPlayer.query_supported_opts()
+
+            import tempfile
+            MPlayer.fifo_path = os.path.join(tempfile.mkdtemp(),'mplayer_fifo')
+            os.mkfifo(MPlayer.fifo_path)
+            MPlayer.fifo_args = "-input file={0}".format(MPlayer.fifo_path).split()
             MPlayer.initialized = True;
+
+    def __del__(self):
+        if MPlayer.initialized:
+            os.unlink(MPlayer.fifo_path)
+            os.rmdir(os.path.split(MPlayer.fifo_path)[0])
+            MPlayer.fifo_path = ""
+            MPlayer.fifo_args = []
+            MPlayer.initialized = False
 
     @staticmethod
     def support(opt):
@@ -284,15 +278,20 @@ class MPlayer:
     @staticmethod
     def cmd(cmd_string):
         if MPlayer.instance.poll() == None:
-            logging.debug("Sending command <{0}> to <{1}>".format(cmd_string, Fifo.path))
-            fifo = open(Fifo.path,"w")
+            logging.debug("Sending command <{0}> to <{1}>".format(cmd_string, MPlayer.fifo_path))
+            fifo = open(MPlayer.fifo_path,"w")
             fifo.write(cmd_string+'\n')
             fifo.close()
         
     @staticmethod
     def play(args=[],timers=[]):
+        args = [MPlayer.path] + MPlayer.fifo_args + args
+        if dry_run:
+            logging.debug("Final command:\n{0}".format(' '.join(args)))
+            return
+
         for t in timers: t.start()
-        MPlayer.instance = Popen([MPlayer.path]+args,stdin=sys.stdin,stdout=PIPE,stderr=None)
+        MPlayer.instance = Popen(args,stdin=sys.stdin,stdout=PIPE,stderr=None)
         MPlayer.tee()
         for t in timers: t.cancel(); t.join()
 
@@ -459,17 +458,15 @@ class Launcher:
                 hooks = []
 
                 if m.exist:
-                    args = Fifo.args[:]
+                    args = []
                     if m.is_video:
                         args += expand_video(m, Launcher.meta.expand, Launcher.meta.screen_dim[2])
                         sub = SubFetcher(m)
-                        if dry_run == False and m.subtitle_need_fetch == True:
+                        if m.subtitle_need_fetch == True:
                             hooks.append(threading.Timer(5.0, sub.do))
 
                     args += Launcher.meta.opts+[f]
-                    logging.debug("Final args:\n{0}".format(' '.join(args)))
-                    if dry_run == False:
-                        MPlayer.play(args,hooks)
+                    MPlayer.play(args,hooks)
                 else:
                     logging.info("{0} does not exist".format(f))
                 
@@ -567,6 +564,9 @@ Features:
 
             logging.debug(log_string)
 
+        # raise a MPlayer instance for the fifo management
+        Launcher.mplayer = MPlayer()
+        
         # init Launcher meta infos
         Launcher.meta = Launcher.Meta()
         Launcher.meta.role = check_role(sys.argv.pop(0))
@@ -582,6 +582,4 @@ if __name__ == "__main__":
     dry_run = False
     logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
-    dump_f = Fifo()
-    MPlayer()
     Launcher().run()

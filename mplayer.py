@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/09 15:11:57>
+# Time-stamp: <subi 2011/11/09 15:26:53>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -303,33 +303,37 @@ class MPlayer:
 
     @staticmethod
     def tee(f=sys.stdout):
-        def flush(f,line):
-            if line.startswith(('A:','V:')):
-                MPlayer.last_timestamp = float(line[2:9])
-            if line.startswith('Exiting...'):
-                MPlayer.last_exit_status = line[12:len(line)-2]
-            f.write(line)
+        lines = ["","","","",""]
+        
+        def flush(f,lines):
+            f.write(lines.pop(0))
             f.flush()
+            lines.append("")
             
         p = MPlayer.instance
-        line = ""
         while True:
             c = p.stdout.read(1)
-            line += c
+            lines[4] += c
             if c == '\n':
-                flush(f,line)
-                line = ""
+                flush(f,lines)
             elif c == '\r':
                 d = p.stdout.read(1)
                 if d == '\n':
-                    line += '\n'
-                    flush(f,line)
-                    line = ""
+                    lines[4] += '\n'
+                    flush(f,lines)
                 else:
-                    flush(f,line)
-                    line = d
+                    flush(f,lines)
+                    lines[4] += d
             elif c == '':
                 break
+
+        for l in lines:
+            if l.startswith(('A:','V:')):
+                MPlayer.last_timestamp = float(l[2:9])
+            if l.startswith('Exiting...'):
+                MPlayer.last_exit_status = l[12:len(l)-2]
+            f.write(l)
+            f.flush()
 
     ## internal
     initialized = False

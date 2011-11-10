@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/09 15:26:53>
+# Time-stamp: <subi 2011/11/10 17:35:26>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -29,8 +29,9 @@ def which(cmd):
             if fullpath: break
     return fullpath
 
-def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
-    # scale to video width which is never modified
+def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
+    # -subfont-autoscale has nothing to do with libass, only affect the osd and
+    # the plain old subtitle renderer
     args = "-subfont-autoscale 2"
 
     if method == "none":
@@ -38,35 +39,98 @@ def expand_video(m, method = "ass", target_aspect = Fraction(4,3)):
     elif m.scaled_dimension[2] < Fraction(4,3) :
         args = "-vf-pre dsize=4/3"
     elif method == "ass":
-        # 3 aspects: video, screen, and PlayResX:PlayResY
-        # mplayer use PlayResX = 336 as default, so do we
+        # The basic idea of video expanding is to fill the video with two black
+        # band in top and bottom. The bands are PARTS of the video, hence
+        # mplayer can render osds (including subtitles) into the bands.
+        #
+        # This can be done in mplayer by two ways:
+        # 1. -vf expand: everything is done by mplayer, but not comptible with
+        #    libass (causing subtitle overlapping when rendering). You have to
+        #    use the old plain subtitle renderer (-noass).
+        # 2. -ass-use-margin: You have to do everything to have libass support,
+        #    invovling the calculation of margins and font scales.
+        #
+        # We only need the video and the display dimension to calculate the
+        # margins. But there is a very annoying problem: the subtile is
+        # horizontally stretched when doing the ass-use-margin stuff, why?
+        #
+        # Being too lazy to look over the sources, I take a wild guess of what
+        # is done in the ass renderer of mplayer (or libass) after some googling
+        # and experiments:
+        #
+        # 1. there are 3 different dimensions involved: the video, the display ,
+        #    and the ass rendering screen (PlayResX, PlayResY)
+        # 2. calculate the font scale by the ASS styles of "PlayResX, PlayResY,
+        #    ScaleX, ScaleY" and the mplayer option "-ass-font-scale"
+        #    a. PlayResY is default to 288
+        #    b. PlayResX is default PlayResY/1.3333
+        #    c. ScaleX, ScaleY are both default to 1
+        #    d. the final font size rendered in the VIDEO is
+        #           scale_base = video_Y / PlayResY * ass_font_scale 
+        #           font_Y = scale_base * ScaleY
+        #           font_X = scale_base * ScaleX
+        # 3. the font size rendered in the DISPLAY is
+        #           scale_base_disp = scale_base * disp_Y / video_Y
+        #                           = disp_Y / PlayResY * ass_font_scale
+        #           font_Y_disp = scale_base_disp * ScaleY
+        #           font_X_disp = scale_base_disp * ScaleX
+        #
+        # This is why the subtitle is alway of the same size in the same display
+        # area for different videos. (disp_Y/PlayResY is constant when PlayResY
+        # takes the default value.)
+        #
+        # While incoporating the video expanding (in Y axis), the situation is
+        # very messy:
+        #   expanded_scale_base = expanded_video_Y / PlayResY * ass_font_scale
+        #   expanded_font_Y = (video_Y/expanded_video_Y) * expanded_scale_base * ScaleY
+        #                   = font_Y
+        #   expanded_font_X = expanded_scale_base * ScaleY
+        #                   = expanded_video_Y / PlayResY * ass_font_scale * ScaleX
+        #                   = (expanded_video_Y/video_Y) * font_X
+        #
+        # This leads to the following consequence:
+        #   the subtitle will be horizontally stretched (vertically unchanged).
+        #
+        # So, what we need is:
+        # 1. do expanding (easy)
+        # 2. make font be of correct aspect (done by calculating the proper
+        #    ScaleX, ScaleY)
+        #
+        # Addtionally, we also want to place the subtitle as close to the
+        # picture as possible (instead of placing the subtitle in the bottom of
+        # the screen). This can be done via the ASS style tag "MarginV", which
+        # the margin is relative to the ass rendering screen (i.e. PlayResX,
+        # PlayResY).
+        #
+        # Of cource we can implement the subtilte placement by just adding a
+        # black band that is wide enough to contain the subtitles, avoiding
+        # bothering the use of "MarginV".
 
-        # magic values
-        # ass dimesion magic
-        magic_ass_dim = [336,252,Fraction(336,252)]
-        magic_font_scale = 1.3
-        magic_subtitle_height = int(magic_font_scale * 50)
-
-        # basic scale factor
+        # TODO: should this be a constant or be proportional to the screen size?
+        ass_font_scale = 2
+#        ass_font_scale = m2t
+        args += " -ass -ass-font-scale {0}".format(ass_font_scale);
+        
+        # base scale factor: video -> screen
+#        m2t = m.scaled_dimension[2] / display_aspect # MarginV approach
+        subtitle_height_in_video = int(18*1.25/288 * ass_font_scale * m.scaled_dimension[1])
+        target_aspect = Fraction(m.scaled_dimension[0], m.scaled_dimension[1]+subtitle_height_in_video*2)
+        if target_aspect < display_aspect:
+            target_aspect = display_aspect
         m2t = m.scaled_dimension[2] / target_aspect
-
-        # base opts
-        args += " -ass -ass-font-scale {0}".format(magic_font_scale*m2t)
-
-        # margin opts
+        
         margin = (m2t - 1) * m.scaled_dimension[1] / 2
         if margin > 0:
             args += " -ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin))
-            args += " -ass-force-style "
-            args += "PlayResX={0[0]},PlayResY={0[1]}".format(magic_ass_dim)
-            args += ",ScaleX={0},ScaleY=1".format(1/float(m2t))
-            # place the subtitle as close to the picture as possible
-            offset = margin-magic_subtitle_height
-            if offset < 0: offset = 0
-            args += ",MarginV={0}".format(float(offset*magic_ass_dim[1]/(m.scaled_dimension[0]/m.scaled_dimension[2])))
+            args += " -ass-force-style ScaleX={0}".format(1/float(m2t))
+            # the MarginV approach
+#            subtitle_height_in_ass_screen = 18*1.8+4
+#            offset_in_ass_screen = margin * 288/m.scaled_dimension[1] - subtitle_height_in_ass_screen
+#            if offset_in_ass_screen > 0:
+#                args += ",MarginV={0}".format(float(offset_in_ass_screen))
     else:
         # -vf expand does its own non-square pixel adjustment
-        args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],target_aspect)
+        args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],disp_aspect)
     return args.split()
 
 def generate_filelist(path):

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/10 17:35:26>
+# Time-stamp: <subi 2011/11/10 22:41:57>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -110,24 +110,18 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
         ass_font_scale = 2
 #        ass_font_scale = m2t
         args += " -ass -ass-font-scale {0}".format(ass_font_scale);
-        
-        # base scale factor: video -> screen
-#        m2t = m.scaled_dimension[2] / display_aspect # MarginV approach
+
         subtitle_height_in_video = int(18*1.25/288 * ass_font_scale * m.scaled_dimension[1])
         target_aspect = Fraction(m.scaled_dimension[0], m.scaled_dimension[1]+subtitle_height_in_video*2)
         if target_aspect < display_aspect:
             target_aspect = display_aspect
+        # expand_video_y:video_Y = (video_X/video_Y):(video_X/expanded_video_Y)
         m2t = m.scaled_dimension[2] / target_aspect
         
-        margin = (m2t - 1) * m.scaled_dimension[1] / 2
-        if margin > 0:
+        if m2t > 1:
+            margin = (m2t - 1) * m.scaled_dimension[1] / 2
             args += " -ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin))
             args += " -ass-force-style ScaleX={0}".format(1/float(m2t))
-            # the MarginV approach
-#            subtitle_height_in_ass_screen = 18*1.8+4
-#            offset_in_ass_screen = margin * 288/m.scaled_dimension[1] - subtitle_height_in_ass_screen
-#            if offset_in_ass_screen > 0:
-#                args += ",MarginV={0}".format(float(offset_in_ass_screen))
     else:
         # -vf expand does its own non-square pixel adjustment
         args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],disp_aspect)

@@ -2,12 +2,21 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/21 11:49:15>
+# Time-stamp: <subi 2011/11/21 12:15:49>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
 # and place it in your $PATH (don't overwrite the real MPlayer); you would not
 # even notice its existence.
+
+# TODO:
+# 1. resume last played position
+# 2. remember last volume
+# 3. remember last hue/contrast for continuous playing
+# 4. shooter sometimes return a false subtitle with the same time length. find a
+#    cure. (using zenity, pygtk, or both?)
+# 5. chardet instead of enca?
+
 
 import os, sys, threading, logging
 import struct, urllib2

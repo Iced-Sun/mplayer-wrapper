@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/10 22:41:57>
+# Time-stamp: <subi 2011/11/21 11:49:15>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -223,7 +223,7 @@ class SubFetcher:
                 from cStringIO import StringIO
                 self.subtitles.append([file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
             else:
-                logging.warning("Unknown format in downloaded subtiltle data.")
+                logging.warning("Unknown format or uncompleted data. Trying again...")
 
         # now request the real connection
         response = urllib2.urlopen(self.req)
@@ -244,7 +244,7 @@ class SubFetcher:
     def save(self):
         enca = which("enca")
         for sub in self.subtitles:
-            logging.info("Saving subtitle file {0}".format(sub[0]))
+            logging.info("Saving subtitle as {0}".format(sub[0]))
             f = open(sub[0],"wb")
             f.write(sub[1])
             f.close()
@@ -254,7 +254,7 @@ class SubFetcher:
 
     def activate_in_mplayer(self):
         for sub in self.subtitles:
-            MPlayer.cmd("sub_load {0}".format(sub[0]))
+            MPlayer.cmd("sub_load \"{0}\"".format(sub[0]))
         MPlayer.cmd("sub_file 0")
 
     def __build_data(self,m):

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/21 12:15:49>
+# Time-stamp: <subi 2011/11/22 10:53:44>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -12,11 +12,10 @@
 # TODO:
 # 1. resume last played position
 # 2. remember last volume
-# 3. remember last hue/contrast for continuous playing
+# 3. remember last volume/hue/contrast for continuous playing (don't need data persistance)
 # 4. shooter sometimes return a false subtitle with the same time length. find a
 #    cure. (using zenity, pygtk, or both?)
 # 5. chardet instead of enca?
-
 
 import os, sys, threading, logging
 import struct, urllib2
@@ -222,7 +221,7 @@ class SubFetcher:
             c = response.read(8)
             filepack_length, ext_length = struct.unpack("!II", c)
 
-            file_ext = response.read(ext_length)#.decode("UTF-8")
+            file_ext = response.read(ext_length)
                 
             c = response.read(4)
             file_length = struct.unpack("!I", c)[0]
@@ -234,7 +233,6 @@ class SubFetcher:
             else:
                 logging.warning("Unknown format or uncompleted data. Trying again...")
 
-        # now request the real connection
         response = urllib2.urlopen(self.req)
 
         c = response.read(1)
@@ -286,7 +284,7 @@ class SubFetcher:
         post_boundary = "----------------------------{0:x}".format(random.getrandbits(48))
 
         self.url = "{0}://{1}.shooter.cn/api/subapi.php".format(random.choice(schemas), random.choice(servers))
-
+        
         self.header = []
         self.header.append(["User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543))])
         self.header.append(["Content-Type", "multipart/form-data; boundary={0}".format(post_boundary)])

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/22 10:53:44>
+# Time-stamp: <subi 2011/11/23 09:04:33>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -156,6 +156,10 @@ def generate_filelist(path):
 
     # filter by extention
     files = filter(lambda f: f.endswith(os.path.splitext(basename)[1]), os.listdir(pdir))
+
+    # the source file doesn't exist
+    if not basename in files:
+        return [path]
 
     # sort the filelist and remove alphabetical header
     files.sort(key=make_sort_key)

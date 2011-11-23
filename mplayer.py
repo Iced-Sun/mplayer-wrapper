@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/23 11:35:39>
+# Time-stamp: <subi 2011/11/23 14:04:02>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -535,6 +535,53 @@ Video:                  {5}""".format(self.filename,
             self.subtitle_had = "external vobsub"
         self.subtitle_need_fetch = not "text" in self.subtitle_had
 
+class OptsParser:
+    ori_opts = []
+    bad_opts = []
+    opts = []
+    files = []
+
+    __opts = []
+
+    def __init__(self, args, mplayer):
+        self.ori_opts = args[:]
+        self.__opts = args[:]
+
+        while len(self.__opts)>0:
+            s = self.__opts.pop(0)
+            if s == "-debug":
+                logging.root.setLevel(logging.DEBUG)
+            elif s == "-dry-run":
+                logging.root.setLevel(logging.DEBUG)
+                global dry_run
+                dry_run = True
+            elif s == "--":
+                self.files += self.__opts
+                self.__opts = []
+            elif s.startswith("-"):
+                flag = mplayer.support(s.split('-',1)[1])
+                if flag == None:
+                    # option not supported by mplayer, silently ignore it
+                    self.bad_opts.append(s)
+                else:
+                    self.opts.append(s)
+                    if flag == 1 and len(self.__opts)>0:
+                        self.opts.append(self.__opts.pop(0))
+            else:
+                self.files.append(s)
+
+def run():
+    mplayer = MPlayer()
+
+    sys.argv.pop(0)
+    parser = OptsParser(sys.argv, mplayer)
+
+    print sys.argv
+    print parser.ori_opts
+    print parser.opts
+    print parser.bad_opts
+    print parser.files
+
 class Launcher:
     """Command line parser.
     Laucher.meta is a static member that store the infomation of execution environment for mplayer.
@@ -676,4 +723,6 @@ Features:
 if __name__ == "__main__":
     dry_run = False
     logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
-    Launcher().run()
+#    Launcher().run()
+
+    run()

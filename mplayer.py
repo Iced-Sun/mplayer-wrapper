@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/23 09:04:33>
+# Time-stamp: <subi 2011/11/23 10:15:21>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -26,9 +26,9 @@ def which(cmd):
     """Mimic the shell command "which".
     """
     def exefy(fullpath):
-        return fullpath if os.path.exists(fullpath) and os.access(fullpath, os.X_OK) else None
+        return fullpath if os.access(fullpath, os.X_OK) else None
 
-    pdir = os.path.split(cmd)[0]
+    pdir, exe = os.path.split(cmd)
     if pdir:
         fullpath = exefy(cmd)
     else:
@@ -38,91 +38,87 @@ def which(cmd):
     return fullpath
 
 def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
+    """Given a video "m", expand it to the specified "display_aspect" with "method".
+
+    Return the arguments list for mplayer.
+
+    The basic idea of video expanding is to fill the video with two black band in
+    top and bottom. The bands are PARTS of the video, hence mplayer can render osds
+    (including subtitles) into the bands.
+        
+    This can be done in mplayer by two ways:
+    1. -vf expand: everything done by mplayer, but not comptible with libass (causing
+       subtitle overlapping when rendering). You have to use the old plain subtitle
+       renderer (-noass) with "-vf expand".
+    2. -ass-use-margin: everything done by YOU, including the calculation of the
+       margin widths and the font scales. The benefit is you can finally use "-ass".
+        
+    To calculate the margin widths, one need the video and the display dimensions.
+    When done with the "ass-use-margin" stuff, it appears a very annoying problem:
+    the subtitle font is horizontally stretched. UGLY and UNACCEPTABLE.
+        
+    Being too lazy to look over the sources, a wild guess for what is done in the
+    ass renderer of mplayer/libass is taken after some googling and experiments:
+    1. there are 3 different dimensions: the video, the display, and the ass rendering
+       screen (PlayResX:PlayResY)
+    2. the font scale is caculated by the ASS styles of "PlayResX, PlayResY, ScaleX,
+       ScaleY" and the mplayer option "-ass-font-scale":
+       a. PlayResY defaults to 288
+       b. PlayResX defaults to PlayResY/1.3333
+       c. ScaleX, ScaleY both defaults to 1
+       d. the final font size rendered in the VIDEO is:
+               scale_base = video_Y/PlayResY * ass_font_scale 
+               font_Y = scale_base * ScaleY
+               font_X = scale_base * ScaleX
+    3. the font size rendered in the DISPLAY is:
+               scale_base_disp = disp_Y/video_Y * scale_base
+                               = disp_Y/PlayResY * ass_font_scale
+               font_Y_disp = scale_base_disp * ScaleY
+               font_X_disp = scale_base_disp * ScaleX
+        
+    This is why the subtitle is alway of the same size with the same display size for
+    different videos. (disp_Y/PlayResY is constant when PlayResY takes the default
+    value.)
+        
+    While the video expanding (in Y axis) is concerned, the situation becomes a little
+    messy:
+             ex_scale_base = ex_video_Y/PlayResY * ass_font_scale
+             ex_font_Y = (video_Y/ex_video_Y) * ex_scale_base * ScaleY
+                       = font_Y
+             ex_font_X = ex_scale_base * ScaleX
+                       = ex_video_Y/PlayResY * ass_font_scale * ScaleX
+                       = (ex_video_Y/video_Y) * font_X
+    Clearly the subtitle is horizontally stretched (vertically unchanged).
+        
+    So, what we need is:
+    1. do expanding (easy)
+    2. make font be of correct aspect (done by calculating a proper ScaleX)
+        
+    Addtionally, we also want to place the subtitle as close to the picture as
+    possible (instead of the bottom of the screen, which is visual distracting).
+    This can be done via the ASS style tag "MarginV", which is the relative relative
+    in the ass rendering screen (i.e. the screan of PlayResX:PlayResY).
+        
+    Another approach is just adding a black band that is wide enough to contain
+    the subtitles, avoiding bothering the use of "MarginV".
+    """
     # -subfont-autoscale has nothing to do with libass, only affect the osd and
     # the plain old subtitle renderer
     args = "-subfont-autoscale 2"
 
-    if method == "none":
-        args = ""
-    elif m.scaled_dimension[2] < Fraction(4,3) :
+    if m.scaled_dimension[2] < Fraction(4,3):
+        # assume we will never face a narrower screen than 4:3
         args = "-vf-pre dsize=4/3"
     elif method == "ass":
-        # The basic idea of video expanding is to fill the video with two black
-        # band in top and bottom. The bands are PARTS of the video, hence
-        # mplayer can render osds (including subtitles) into the bands.
-        #
-        # This can be done in mplayer by two ways:
-        # 1. -vf expand: everything is done by mplayer, but not comptible with
-        #    libass (causing subtitle overlapping when rendering). You have to
-        #    use the old plain subtitle renderer (-noass).
-        # 2. -ass-use-margin: You have to do everything to have libass support,
-        #    invovling the calculation of margins and font scales.
-        #
-        # We only need the video and the display dimension to calculate the
-        # margins. But there is a very annoying problem: the subtile is
-        # horizontally stretched when doing the ass-use-margin stuff, why?
-        #
-        # Being too lazy to look over the sources, I take a wild guess of what
-        # is done in the ass renderer of mplayer (or libass) after some googling
-        # and experiments:
-        #
-        # 1. there are 3 different dimensions involved: the video, the display ,
-        #    and the ass rendering screen (PlayResX, PlayResY)
-        # 2. calculate the font scale by the ASS styles of "PlayResX, PlayResY,
-        #    ScaleX, ScaleY" and the mplayer option "-ass-font-scale"
-        #    a. PlayResY is default to 288
-        #    b. PlayResX is default PlayResY/1.3333
-        #    c. ScaleX, ScaleY are both default to 1
-        #    d. the final font size rendered in the VIDEO is
-        #           scale_base = video_Y / PlayResY * ass_font_scale 
-        #           font_Y = scale_base * ScaleY
-        #           font_X = scale_base * ScaleX
-        # 3. the font size rendered in the DISPLAY is
-        #           scale_base_disp = scale_base * disp_Y / video_Y
-        #                           = disp_Y / PlayResY * ass_font_scale
-        #           font_Y_disp = scale_base_disp * ScaleY
-        #           font_X_disp = scale_base_disp * ScaleX
-        #
-        # This is why the subtitle is alway of the same size in the same display
-        # area for different videos. (disp_Y/PlayResY is constant when PlayResY
-        # takes the default value.)
-        #
-        # While incoporating the video expanding (in Y axis), the situation is
-        # very messy:
-        #   expanded_scale_base = expanded_video_Y / PlayResY * ass_font_scale
-        #   expanded_font_Y = (video_Y/expanded_video_Y) * expanded_scale_base * ScaleY
-        #                   = font_Y
-        #   expanded_font_X = expanded_scale_base * ScaleY
-        #                   = expanded_video_Y / PlayResY * ass_font_scale * ScaleX
-        #                   = (expanded_video_Y/video_Y) * font_X
-        #
-        # This leads to the following consequence:
-        #   the subtitle will be horizontally stretched (vertically unchanged).
-        #
-        # So, what we need is:
-        # 1. do expanding (easy)
-        # 2. make font be of correct aspect (done by calculating the proper
-        #    ScaleX, ScaleY)
-        #
-        # Addtionally, we also want to place the subtitle as close to the
-        # picture as possible (instead of placing the subtitle in the bottom of
-        # the screen). This can be done via the ASS style tag "MarginV", which
-        # the margin is relative to the ass rendering screen (i.e. PlayResX,
-        # PlayResY).
-        #
-        # Of cource we can implement the subtilte placement by just adding a
-        # black band that is wide enough to contain the subtitles, avoiding
-        # bothering the use of "MarginV".
-
-        # TODO: should this be a constant or be proportional to the screen size?
+        # a magic value here: feel free to change it for your favor.
         ass_font_scale = 2
-#        ass_font_scale = m2t
         args += " -ass -ass-font-scale {0}".format(ass_font_scale);
 
         subtitle_height_in_video = int(18*1.25/288 * ass_font_scale * m.scaled_dimension[1])
         target_aspect = Fraction(m.scaled_dimension[0], m.scaled_dimension[1]+subtitle_height_in_video*2)
         if target_aspect < display_aspect:
             target_aspect = display_aspect
+
         # expand_video_y:video_Y = (video_X/video_Y):(video_X/expanded_video_Y)
         m2t = m.scaled_dimension[2] / target_aspect
         
@@ -131,7 +127,8 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
             args += " -ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin))
             args += " -ass-force-style ScaleX={0}".format(1/float(m2t))
     else:
-        # -vf expand does its own non-square pixel adjustment
+        # -vf expand does its own non-square pixel adjustment, hence using
+        # m.original_dimension is safe
         args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],disp_aspect)
     return args.split()
 

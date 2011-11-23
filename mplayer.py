@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/23 10:15:21>
+# Time-stamp: <subi 2011/11/23 11:35:39>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -132,16 +132,20 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
         args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],disp_aspect)
     return args.split()
 
-def generate_filelist(path):
+def genlist(path):
+    """For the given path, generate a file list for continuous playing.
+
+    Won't check if the path exists.
+    """
     import locale,re
     def translate(s):
-        chinese_numbers = dict(zip(u'零〇一二三四五六七八九','00123456789'))
+        dic = dict(zip(u'零〇一二三四五六七八九','00123456789'))
 
         loc = locale.getdefaultlocale()
         s = s.decode(loc[1])
-        return ''.join([chinese_numbers.get(c,c) for c in s]).encode(loc[1])
+        return ''.join([dic.get(c,c) for c in s]).encode(loc[1])
     def split_by_int(s):
-        return filter(lambda x: x!='', [sub for sub in re.split('(\d+)', translate(s))])
+        return filter(lambda x:x!='', [sub for sub in re.split('(\d+)', translate(s))])
     def make_sort_key(s):
         return [(int(sub) if sub.isdigit() else sub) for sub in split_by_int(s)]
     def strip_to_int(s,prefix):
@@ -151,21 +155,17 @@ def generate_filelist(path):
 
     pdir, basename = os.path.split(os.path.abspath(path))
 
-    # filter by extention
-    files = filter(lambda f: f.endswith(os.path.splitext(basename)[1]), os.listdir(pdir))
-
-    # the source file doesn't exist
-    if not basename in files:
-        return [path]
-
-    # sort the filelist and remove alphabetical header
+    # basic candidate filtering
+    # 1. extention
+    files = filter(lambda f:f.endswith(os.path.splitext(basename)[1]), os.listdir(pdir))
+    # 2. sort and remove alphabetical header
     files.sort(key=make_sort_key)
     del files[0:files.index(basename)]
 
     # generate the list
-    result = [os.path.join(pdir,files[0])]
+    results = [os.path.join(pdir,files[0])]
     if len(files) == 1:
-        return result
+        return results
 
     # find the common prefix
     keys = map(lambda f: split_by_int(f),files[0:2])
@@ -177,11 +177,10 @@ def generate_filelist(path):
     for i,f in enumerate(files[1:]):
         if not prefix in f: break
         if strip_to_int(f,prefix) - strip_to_int(files[i],prefix) == 1:
-            result.append(os.path.join(pdir,f))
+            results.append(os.path.join(pdir,f))
         else:
             break
-    
-    return result
+    return results
 
 class SubFetcher:
     """Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
@@ -631,7 +630,7 @@ class Launcher:
                     meta.files.append(a)
 
             if len(meta.files) == 1:
-                meta.files = generate_filelist(meta.files[0])
+                meta.files = genlist(meta.files[0])
 
         def info(meta):
             log_string = "Run as <{0}>".format(meta.role)

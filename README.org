@@ -1,34 +1,34 @@
 * MPlayer wrapper
-mplayer-wrapper是MPlayer的一个简单的命令行前端。在实现一些功能的基础上，尽可能保证与原有的mplayer命令行界面保持一致。
+mplayer-wrapper是MPlayer的一个命令行前端，尽可能保证与原有的mplayer命令行界面保持一致。
 
-实现了两个版本：Bash和Python，Bash不会再改动了（写起来不舒服）；Python版还有一些功能没实现，但推荐用Python版。
+目前有两个版本：Bash和Python。Bash版不会再改动了；Python版还有一些功能没实现，推荐Python版。
 
 ** 功能
 *** 视频填充
 对视频的顶端和底端用黑边进行填充，使得字幕和OSD能够显示在黑边上（而不是覆盖在画面上，[[http://gosubi.me/adow/2010/02/mplayer-reloaded/][查看截图]]）。
 
-通过mplayer的-vf expand或-ass-use-margins实现。
+通过mplayer的-vf expand或-ass-use-margins实现（默认使用ass）。
 
 *** 字体大小和位置自适应
-如果使用mplayer原生的字幕渲染，通过subfont-scale和subpos选项可以容易的控制字体大小和位置；因此把相应的值写到~/.mplayer/config中就可以。
+如果使用mplayer原生的字幕渲染，通过subfont-scale和subpos选项可控制字体大小和位置；因此把相应的值写到~/.mplayer/config中就可以。
 
 如果使用libass字幕渲染，需要动态计算PlayResX等ass参数，这一功能只在python版中进行了实现。
 
 *** 字幕自动下载
 对于没有文本字幕的视频，自动从[[http://shooter.cn][射手网]]进行查询和下载。
     
-Python版使用的是射手网的subapi，即通过视频文件本身的hash来查询字幕，结果精确；但缺点是由于负载原因，射手网只提供了中文字幕，因此需要英文字幕的就是能手动上网搜索下载了。
+Python版使用射手网的subapi，即通过视频文件本身的hash（若干个md5校验串）来查询字幕，结果精确；但由于负载原因，射手网只提供了中文字幕，因此需要英文字幕的就只能手动上网搜索下载了。
 
 另外，Python版如果检测到安装了enca，会把下载的字幕转换成UTF-8后保存。
 
-Bash版用的是射手网的webapi，通过文件名向射手网查询字幕（效果和手动上网搜索是一样的）；但因为各种原因，无法做到足够智能，因此只能支持有限的几种标准命名的视频文件（如“无耻混蛋.Inglourious.Basterds.2009.BDRip.X264-TLF(548063E9).mkv”，“02.25.07.Crimson.Pig.1992.DVDRip.X264.TriAudio.iNT-TLF”等等）。
+Bash版使用射手网的webapi，通过文件名向射手网查询字幕（效果和手动上网搜索是一样的）；但因为各种原因，无法做到足够智能，因此只能支持有限的几种“标准”命名的视频文件（如“无耻混蛋.Inglourious.Basterds.2009.BDRip.X264-TLF(548063E9).mkv”，“02.25.07.Crimson.Pig.1992.DVDRip.X264.TriAudio.iNT-TLF”等等）。
 *** 连续播放
 根据文件名生成播放列表，从而自动播放文件名连续的多个文件（例如“十二国记第03集”、“十二国记第04集”）。
 
 Python版额外支持以下格式：
 + 中文数字（简体）：如“第一集、第二集”、“第六零集、第六一集”
-+ 不同数位：如“第1集、第02集”、“第9集、第10集“
-+ 前两者的混合
++ 前导零：如“第1集、第02集”、“第9集、第10集“
++ 前两者的混合：如“第一集、第02集、第3集”
 
 *** 记录播放位置（Python版未实现）
 记录视频退出时的播放位置，从而在下次播放时从结束处继续播放（只有视频处于时间轴100秒之后并且在时间轴95%之前，才会在退出时记录）。

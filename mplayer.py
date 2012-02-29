@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/02/29 12:16:56>
+# Time-stamp: <subi 2012/02/29 15:03:52>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -18,9 +18,14 @@
 # 5. chardet instead of enca?
 # 6. support a,b,c... in continuous playing?
 
-import os, sys, threading, logging
-import struct, urllib2
-from subprocess import *
+import logging
+import os
+import sys
+import struct
+import threading
+import urllib2
+from subprocess import Popen
+from subprocess import PIPE
 from fractions import Fraction
 
 def which(cmd):
@@ -119,32 +124,33 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
     """
     # -subfont-autoscale has nothing to do with libass, only affect the osd and
     # the plain old subtitle renderer
-    args = "-subfont-autoscale 2"
+    args = "-subfont-autoscale 2".split()
 
     if m.scaled_dimension[2] < Fraction(4,3):
         # assume we will never face a narrower screen than 4:3
-        args += " -vf-pre dsize=4/3"
+        args.extend("-vf-pre dsize=4/3".split())
     elif method == "ass":
-        # a magic value here: feel free to change it for your favor.
+        # feel free to change the scale for your favor.
         ass_font_scale = 2
-        args += " -ass -ass-font-scale {0}".format(ass_font_scale);
+        args.extend("-ass -ass-font-scale {0}".format(ass_font_scale).split());
 
         subtitle_height_in_video = int(18*1.25/288 * ass_font_scale * m.scaled_dimension[1])
         target_aspect = Fraction(m.scaled_dimension[0], m.scaled_dimension[1]+subtitle_height_in_video*2)
-        if target_aspect < display_aspect: target_aspect = display_aspect
+        if target_aspect < display_aspect:
+            target_aspect = display_aspect
 
         # expand_video_y:video_Y = (video_X/video_Y):(video_X/expanded_video_Y)
         m2t = m.scaled_dimension[2] / target_aspect
         
         if m2t > 1:
             margin = (m2t - 1) * m.scaled_dimension[1] / 2
-            args += " -ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin))
-            args += " -ass-force-style ScaleX={0}".format(1/float(m2t))
+            args.extend("-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin)).split())
+            args.extend("-ass-force-style ScaleX={0}".format(1/float(m2t)).split())
     else:
-        # -vf expand does its own non-square pixel adjustment, hence using
-        # m.original_dimension is safe
-        args += " -subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],disp_aspect)
-    return args.split()
+        # -vf expand does its own non-square pixel adjustment;
+        # m.original_dimension is fine
+        args.extend("-subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],disp_aspect).split())
+    return args
 
 def genlist(path):
     """For the given path, generate a file list for continuous playing.
@@ -160,7 +166,8 @@ def genlist(path):
     def make_sort_key(s):
         return [(int(x) if x.isdigit() else x) for x in split_by_int(s)]
     def strip_to_int(s,prefix):
-        s = s.partition(prefix)[2] if prefix!='' else s
+        if prefix and prefix in s:
+            s = s.partition(prefix)[2]
         s = split_by_int(s)[0]
         return int(s) if s.isdigit() else float('NaN')
 
@@ -182,15 +189,15 @@ def genlist(path):
 
     # find the common prefix
     keys = [split_by_int(f) for f in files[0:2]]
-    prefix = ""
+    prefix_items = []
     for key in zip(keys[0],keys[1]):
-        if key[0] == key[1]: prefix += key[0]
+        if key[0] == key[1]: prefix_items.append(key[0])
         else: break
+    prefix = ''.join(prefix_items)
 
     # generate the list
     results = [os.path.join(pdir,files[0])]
     for i,f in enumerate(files[1:]):
-        if not prefix in f: break
         if strip_to_int(f,prefix) - strip_to_int(files[i],prefix) == 1:
             results.append(os.path.join(pdir,f))
         else: break
@@ -204,9 +211,9 @@ class SubFetcher:
 
     def do(self):
         self.save_dir = "test for mp"
-#        self.fetch()
-#        self.save()
-#        self.activate_in_mplayer()
+        self.fetch()
+        self.save()
+        self.activate_in_mplayer()
         
     def __init__(self, m):
         self.save_dir = os.path.splitext(m.fullpath)[0]
@@ -259,6 +266,7 @@ class SubFetcher:
             parse_package(response)
         logging.info("{0} subtitle(s) fetched.".format(len(self.subtitles)))
 
+        # todo: enumerate?
         for i in range(len(self.subtitles)):
             suffix = str(i) if i>0 else ""
             self.subtitles[i][0] = self.save_dir + suffix + '.' + self.subtitles[i][0]
@@ -285,7 +293,7 @@ class SubFetcher:
             if sz>8192:
                 import hashlib
                 f = open(path, 'rb')
-                filehash = ';'.join(map(lambda s: (f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1], (lambda l:[4096, l/3*2, l/3, l-8192])(sz)))
+                filehash = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
                 f.close()
             else:
                 filehash = ""
@@ -296,42 +304,36 @@ class SubFetcher:
         servers = ["splayer1", "splayer2", "splayer3", "splayer4"]
 
         import random
-        post_boundary = "----------------------------{0:x}".format(random.getrandbits(48))
+        boundary = "-"*28 + "{0:x}".format(random.getrandbits(48))
 
         self.url = "{0}://{1}.shooter.cn/api/subapi.php".format(random.choice(schemas), random.choice(servers))
         
         self.header = []
         self.header.append(["User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543))])
-        self.header.append(["Content-Type", "multipart/form-data; boundary={0}".format(post_boundary)])
+        self.header.append(["Content-Type", "multipart/form-data; boundary={0}".format(boundary)])
 
         data = []
-        fake_pathinfo = os.path.join("c:/", os.path.basename(os.path.dirname(m.fullpath)), os.path.basename(m.fullpath))
-        data.append(["pathinfo", fake_pathinfo])
+        data.append(["pathinfo", os.path.join("c:/", os.path.basename(os.path.dirname(m.fullpath)), os.path.basename(m.fullpath))])
         data.append(["filehash", hashing(m.fullpath)])
 #        data.append(["lang", "chn"])
-        self.data = ""
-        for d in data:
-            self.data += """--{0}
-Content-Disposition: form-data; name="{1}"
 
-{2}
-""".format(post_boundary, d[0], d[1])
-        self.data += "--" + post_boundary + "--"
+        self.data = ''.join(["--{0}\n"
+                             "Content-Disposition: form-data; name=\"{1}\"\n"
+                             "{2}\n".format(boundary, d[0], d[1]) for d in data]
+                            + ["--" + boundary + "--"])
 
-        logging.debug("""Will query server {0} with
-{1}
-{2}
-""".format(self.url,self.header,self.data))
+        logging.debug("Will query server {0} with\n"
+                      "{1}\n"
+                      "{2}\n".format(self.url,self.header,self.data))
         
-class MPlayer:
+class MPlayer(object):
     # TODO: "not compiled in option"
     last_timestamp = 0.0
     last_exit_status = None
 
     def identify(self,filelist=[]):
         p = Popen([self.__path]+"-vo null -ao null -frames 0 -identify".split()+filelist, stdout=PIPE, stderr=PIPE)
-        result = filter(lambda l: l.startswith("ID_"), p.communicate()[0].splitlines())
-        return result
+        return [l for l in p.communicate()[0].splitlines() if l.startswith("ID_")]
 
     def support(self,opt):
         # 1: take no param
@@ -349,26 +351,28 @@ class MPlayer:
     def play(self,args=[]):
         def tee(p, f=sys.stdout):
             def flush(f,lines):
-                f.write(lines.pop(0))
+                f.write(''.join(lines.pop(0)))
                 f.flush()
-                lines.append("")
-            lines = ["","","","",""]
+                lines.append([])
+
+            # cache 5 lines in case of unexpected outputs
+            lines = [[] for i in range(5)]
             while True:
                 c = p.stdout.read(1)
-                lines[4] += c
+                lines[4].append(c)
                 if c == '\n':
                     flush(f,lines)
                 elif c == '\r':
                     d = p.stdout.read(1)
                     if d == '\n':
-                        lines[4] += '\n'
+                        lines[4].append('\n')
                         flush(f,lines)
                     else:
                         flush(f,lines)
-                        lines[4] += d
+                        lines[4].append(d)
                 elif c == '':
                     break
-            for l in lines:
+            for l in (''.join(ll) for ll in lines):
                 if l.startswith(('A:','V:')):
                     self.last_timestamp = float(l[2:9])
                 if l.startswith('Exiting...'):
@@ -377,12 +381,16 @@ class MPlayer:
                 f.flush()
 
         args = [self.__path] + self.__args + args
-        if dry_run:
-            logging.debug("Final command:\n{0}".format(' '.join(args)))
-            return
+
+        logging.debug("Final command:\n{0}".format(' '.join(args)))
+
+        if dry_run: return
 
         self.__process = Popen(args, stdin=sys.stdin, stdout=PIPE, stderr=None)
         tee(self.__process)
+
+        logging.debug("Last timestamp: {0}".format(self.last_timestamp))
+        logging.debug("Last exit status: {0}".format(self.last_exit_status))
 
     def __init__(self, fifo, default_args=[]):
         self.__path = None
@@ -450,24 +458,21 @@ class Media:
         self.__log()
 
     def __log(self):
-        log_string = """{0}
-Fullpath:               {1}
-Seekable:               {2}
-Video:                  {3}""".format(self.filename,
-                                      self.fullpath,
-                                      self.seekable,
-                                      self.is_video)
+        items = ["{0}\n"
+                 "  Fullpath:               {1}\n"
+                 "  Seekable:               {2}\n"
+                 "  Video:                  {3}\n".format(self.filename, self.fullpath, self.seekable, self.is_video)]
+        
         if self.is_video:
-            log_string += """
-  Dimension(pixel):     {0}
-  Dimension(display):   {1}
-  Aspect(display):      {2}
-  Subtitles:            {3}
-""".format("{0[0]}x{0[1]}".format(self.original_dimension),
-           "{0[0]}x{0[1]}".format(self.scaled_dimension),
-           float(self.scaled_dimension[2]),
-           self.subtitle_had)
-        logging.debug(log_string)
+            items.append("    Dimension(pixel):     {0}\n"
+                         "    Dimension(display):   {1}\n"
+                         "    Aspect(display):      {2}\n"
+                         "    Subtitles:            {3}\n".format(
+                    "{0[0]}x{0[1]}".format(self.original_dimension),
+                    "{0[0]}x{0[1]}".format(self.scaled_dimension),
+                    float(self.scaled_dimension[2]),
+                    self.subtitle_had))
+        logging.debug(''.join(items))
 
     def __gen_meta_info(self,info):
         self.filename = info["ID_FILENAME"]
@@ -533,7 +538,7 @@ class CmdLineParser:
                 global dry_run
                 dry_run = True
             elif s == "--":
-                self.files += self.__args
+                self.files.extend(self.__args)
                 self.__args = []
             elif s.startswith("-"):
                 flag = mplayer.support(s.split('-',1)[1])
@@ -548,6 +553,16 @@ class CmdLineParser:
             else:
                 self.files.append(s)
 
+# http://www.python.org/dev/peps/pep-0318/
+def singleton(cls):
+    instances = {}
+    def getinstance():
+        if cls not in instances:
+            instances[cls] = cls()
+        return instances[cls]
+    return getinstance
+
+@singleton
 class Fifo:
     def __init__(self):
         import tempfile
@@ -588,7 +603,7 @@ def run():
                 # todo: what if -noass specified?
                 args += expand_video(media, "ass", screen_dim[2])
 
-#            SubFetcher(media)
+            SubFetcher(media)
             mplayer.play(args+[f])
 
             if mplayer.last_exit_status == "Quit":

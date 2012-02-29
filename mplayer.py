@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2011/11/28 23:59:28>
+# Time-stamp: <subi 2012/02/04 17:53:55>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -205,9 +205,10 @@ class SubFetcher:
     save_dir = ""
 
     def do(self):
-        self.fetch()
-        self.save()
-        self.activate_in_mplayer()
+        self.save_dir = "test for mp"
+#        self.fetch()
+#        self.save()
+#        self.activate_in_mplayer()
         
     def __init__(self, m):
         self.save_dir = os.path.splitext(m.fullpath)[0]
@@ -247,7 +248,7 @@ class SubFetcher:
                 from cStringIO import StringIO
                 self.subtitles.append([file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
             else:
-                logging.warning("Unknown format or uncompleted data. Trying again...")
+                logging.warning("Unknown format or incomplete data. Trying again...")
 
         response = urllib2.urlopen(self.req)
 
@@ -339,11 +340,11 @@ class MPlayer:
         # 2: take 1 param
         if not self.__opts: self.__gen_opts()
         return self.__opts[opt] if opt in self.__opts else 0
-    
-    def cmd(self,cmd,dst):
+
+    def cmd(self,cmd):
         if self.__process.poll() == None:
-            logging.debug("Sending command <{0}> to <{1}>".format(cmd, dst))
-            fifo = open(dst,"w")
+            logging.debug("Sending command <{0}> to <{1}>".format(cmd, self.__fifo_path))
+            fifo = open(self.__fifo_path,"w")
             fifo.write(cmd+'\n')
             fifo.close()
         
@@ -387,6 +388,7 @@ class MPlayer:
 
     def __init__(self, fifo, default_args=[]):
         self.__path = None
+        self.__fifo_path = fifo.path
         self.__args = fifo.args + default_args
         self.__opts = {}
         for p in ["/opt/bin/mplayer","/usr/local/bin/mplayer","/usr/bin/mplayer"]:
@@ -575,6 +577,8 @@ def run():
         if len(parser.files) == 1:
             playlist = genlist(parser.files[0])
 
+        if len(playlist) == 0:
+            mplayer.play(parser.args)
         for f in playlist:
             media = Media(f, mplayer)
             args = parser.args
@@ -583,9 +587,10 @@ def run():
                 logging.debug("{0} does not exist".format(f))
 
             if media.is_video:
+                # todo: what if -noass specified?
                 args += expand_video(media, "ass", screen_dim[2])
 
-            SubFetcher(media)
+#            SubFetcher(media)
             mplayer.play(args+[f])
 
             if mplayer.last_exit_status == "Quit":

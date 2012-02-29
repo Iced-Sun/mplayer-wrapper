@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/02/04 17:53:55>
+# Time-stamp: <subi 2012/02/29 12:16:56>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -16,6 +16,7 @@
 # 4. shooter sometimes return a false subtitle with the same time length. find a
 #    cure. (using zenity, pygtk, or both?)
 # 5. chardet instead of enca?
+# 6. support a,b,c... in continuous playing?
 
 import os, sys, threading, logging
 import struct, urllib2
@@ -38,7 +39,7 @@ def which(cmd):
     return None
         
 def check_dimension():
-    """Select the availible maximal screen dimension by xrandr.
+    """Select the maximal available screen dimension by xrandr.
     """
     dim = [640, 480]
     if which("xrandr"):
@@ -52,30 +53,30 @@ def check_dimension():
     return dim
 
 def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
-    """Given a video "m", expand it to the specified "display_aspect" with "method".
+    """Given a video metainfo "m", expand the video to the specified "display_aspect"
+    with "method".
 
     Return the arguments list for mplayer.
 
-    The basic idea of video expanding is to fill the video with two black band in
-    top and bottom. The bands are PARTS of the video, hence mplayer can render osds
-    (including subtitles) into the bands.
+    Video expanding does the job to attach two black bands to the top and bottom of
+    the video. mplayer will render osds (subtitles etc.) within the bands.
         
-    This can be done in mplayer by two ways:
-    1. -vf expand: everything done by mplayer, but not comptible with libass (causing
-       subtitle overlapping when rendering). You have to use the old plain subtitle
-       renderer (-noass) with "-vf expand".
-    2. -ass-use-margin: everything done by YOU, including the calculation of the
-       margin widths and the font scales. The benefit is you can finally use "-ass".
+    Two ways exist:
+    1. -vf expand:
+       everything done by mplayer, not compatible with libass (subtitle overlapping
+       problem). Have to use the old plain subtitle renderer (-noass).
+    2. -ass-use-margin:
+       everything done by YOU, including the calculation of the margin heights and
+       the font scales. The benefit is you can use "-ass".
         
-    To calculate the margin widths, one need the video and the display dimensions.
-    When done with the "ass-use-margin" stuff, it appears a very annoying problem:
-    the subtitle font is horizontally stretched. UGLY and UNACCEPTABLE.
+    The "ass-use-margin" method leads a very annoying problem: the subtitle charecters
+    are horizontally stretched. UGLY and UNACCEPTABLE. We need a fix.
         
-    Being too lazy to look over the sources, a wild guess for what is done in the
-    ass renderer of mplayer/libass is taken after some googling and experiments:
+    A wild guess for what is done in the ass renderer of mplayer/libass is taken
+    after some googling and experiments:
     1. there are 3 different dimensions: the video, the display, and the ass rendering
        screen (PlayResX:PlayResY)
-    2. the font scale is caculated by the ASS styles of "PlayResX, PlayResY, ScaleX,
+    2. the font scale is caculated w.r.t. the ASS styles of "PlayResX, PlayResY, ScaleX,
        ScaleY" and the mplayer option "-ass-font-scale":
        a. PlayResY defaults to 288
        b. PlayResX defaults to PlayResY/1.3333
@@ -114,7 +115,7 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
     in the ass rendering screen (i.e. the screan of PlayResX:PlayResY).
         
     Another approach is just adding a black band that is wide enough to contain
-    the subtitles, avoiding bothering the use of "MarginV".
+    the subtitles, avoiding the use of "MarginV".
     """
     # -subfont-autoscale has nothing to do with libass, only affect the osd and
     # the plain old subtitle renderer
@@ -122,7 +123,7 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
 
     if m.scaled_dimension[2] < Fraction(4,3):
         # assume we will never face a narrower screen than 4:3
-        args = "-vf-pre dsize=4/3"
+        args += " -vf-pre dsize=4/3"
     elif method == "ass":
         # a magic value here: feel free to change it for your favor.
         ass_font_scale = 2
@@ -130,8 +131,7 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
 
         subtitle_height_in_video = int(18*1.25/288 * ass_font_scale * m.scaled_dimension[1])
         target_aspect = Fraction(m.scaled_dimension[0], m.scaled_dimension[1]+subtitle_height_in_video*2)
-        if target_aspect < display_aspect:
-            target_aspect = display_aspect
+        if target_aspect < display_aspect: target_aspect = display_aspect
 
         # expand_video_y:video_Y = (video_X/video_Y):(video_X/expanded_video_Y)
         m2t = m.scaled_dimension[2] / target_aspect
@@ -151,15 +151,14 @@ def genlist(path):
     """
     import locale,re
     def translate(s):
-        dic = dict(zip(u'零〇一二三四五六七八九','00123456789'))
-
+        dic = dict(zip(u'零壹贰叁肆伍陆柒捌玖〇一二三四五六七八九','01234567890123456789'))
         loc = locale.getdefaultlocale()
         s = s.decode(loc[1])
         return ''.join([dic.get(c,c) for c in s]).encode(loc[1])
     def split_by_int(s):
-        return filter(lambda x:x!='', [sub for sub in re.split('(\d+)', translate(s))])
+        return [x for x in re.split('(\d+)', translate(s)) if x != '']
     def make_sort_key(s):
-        return [(int(sub) if sub.isdigit() else sub) for sub in split_by_int(s)]
+        return [(int(x) if x.isdigit() else x) for x in split_by_int(s)]
     def strip_to_int(s,prefix):
         s = s.partition(prefix)[2] if prefix!='' else s
         s = split_by_int(s)[0]
@@ -172,7 +171,7 @@ def genlist(path):
 
     # basic candidate filtering
     # 1. extention
-    files = filter(lambda f:f.endswith(os.path.splitext(basename)[1]), os.listdir(pdir))
+    files = [f for f in os.listdir(pdir) if f.endswith(os.path.splitext(basename)[1])]
     # 2. sort and remove alphabetical header
     files.sort(key=make_sort_key)
     del files[0:files.index(basename)]
@@ -182,7 +181,7 @@ def genlist(path):
         return [os.path.join(pdir,basename)]
 
     # find the common prefix
-    keys = map(lambda f:split_by_int(f), files[0:2])
+    keys = [split_by_int(f) for f in files[0:2]]
     prefix = ""
     for key in zip(keys[0],keys[1]):
         if key[0] == key[1]: prefix += key[0]
@@ -194,8 +193,7 @@ def genlist(path):
         if not prefix in f: break
         if strip_to_int(f,prefix) - strip_to_int(files[i],prefix) == 1:
             results.append(os.path.join(pdir,f))
-        else:
-            break
+        else: break
     return results
 
 class SubFetcher:

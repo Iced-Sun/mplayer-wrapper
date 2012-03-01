@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/01 16:10:24>
+# Time-stamp: <subi 2012/03/02 00:04:40>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -20,24 +20,22 @@
 # 6. support a,b,c... in continuous playing?
 # 7. dedicated dir for subs?
 # 8. should split class MPlayer to 2 classes: one holds metainfo, the other for
-#    manuplating mplayer instance. 
+#    manuplating mplayer instance.
+# 9. filehash should be contained in class Media
 
 import logging
 import os, sys, time
-import struct
-import urllib2
-import multiprocessing
-from subprocess import Popen
-from subprocess import PIPE
+import struct, urllib2
+import multiprocessing, subprocess
 from fractions import Fraction
 
 def which(cmd):
-    """Mimic the shell command "which".
+    """Mimic shell command "which".
     """
     def exefy(fullpath):
         return fullpath if os.access(fullpath, os.X_OK) else None
 
-    pdir, exe = os.path.split(cmd)
+    pdir = os.path.split(cmd)[0]
     if pdir:
         return exefy(cmd)
     else:
@@ -47,27 +45,26 @@ def which(cmd):
     return None
         
 def check_dimension():
-    """Select the maximal available screen dimension by xrandr.
+    """Select the maximal available screen dimension.
     """
     dim = [640, 480]
     if which("xrandr"):
-        p = Popen(["xrandr"], stdout = PIPE)
+        p = subprocess.Popen(["xrandr"], stdout = subprocess.PIPE)
         for line in p.communicate()[0].splitlines():
             if '*' in line:
                 d = line.split()[0].split('x')
                 if d[0] > dim[0]: dim = map(int,d)
 
-        dim.append(Fraction(dim[0],dim[1]))
-    return dim
+    return dim + [Fraction(dim[0],dim[1])]
 
-def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
+def expand_video(media, method = "ass", display_aspect = Fraction(4,3)):
     """Given a video metainfo "m", expand the video to the specified "display_aspect"
     with "method".
 
     Return the arguments list for mplayer.
 
-    Video expanding does the job to attach two black bands to the top and bottom of
-    the video. mplayer will render osds (subtitles etc.) within the bands.
+    Video expanding attaches two black bands to the top and bottom of the video.
+    MPlayer will then render osds (subtitles etc.) within the bands.
         
     Two ways exist:
     1. -vf expand:
@@ -77,8 +74,8 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
        everything done by YOU, including the calculation of the margin heights and
        the font scales. The benefit is you can use "-ass".
         
-    The "ass-use-margin" method leads a very annoying problem: the subtitle charecters
-    are horizontally stretched. UGLY and UNACCEPTABLE. We need a fix.
+    The "ass-use-margin" method has a very annoying problem: the subtitle charecters
+    are horizontally stretched. We need a fix.
         
     A wild guess for what is done in the ass renderer of mplayer/libass is taken
     after some googling and experiments:
@@ -115,7 +112,7 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
         
     So, what we need is:
     1. do expanding (easy)
-    2. make font be of correct aspect (done by calculating a proper ScaleX)
+    2. make font be of correct aspect (simply let ScaleX = video_Y/ex_video_Y )
         
     Addtionally, we also want to place the subtitle as close to the picture as
     possible (instead of the bottom of the screen, which is visual distracting).
@@ -129,7 +126,7 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
     # the plain old subtitle renderer
     args = "-subfont-autoscale 2".split()
 
-    if m.scaled_dimension[2] < Fraction(4,3):
+    if media.scaled_dimension[2] < Fraction(4,3):
         # assume we will never face a narrower screen than 4:3
         args.extend("-vf-pre dsize=4/3".split())
     elif method == "ass":
@@ -137,22 +134,22 @@ def expand_video(m, method = "ass", display_aspect = Fraction(4,3)):
         ass_font_scale = 2
         args.extend("-ass -ass-font-scale {0}".format(ass_font_scale).split());
 
-        subtitle_height_in_video = int(18*1.25/288 * ass_font_scale * m.scaled_dimension[1])
-        target_aspect = Fraction(m.scaled_dimension[0], m.scaled_dimension[1]+subtitle_height_in_video*2)
+        subtitle_height_in_video = int(18*1.25/288 * ass_font_scale * media.scaled_dimension[1])
+        target_aspect = Fraction(media.scaled_dimension[0], media.scaled_dimension[1]+subtitle_height_in_video*2)
         if target_aspect < display_aspect:
             target_aspect = display_aspect
 
         # expand_video_y:video_Y = (video_X/video_Y):(video_X/expanded_video_Y)
-        m2t = m.scaled_dimension[2] / target_aspect
+        m2t = media.scaled_dimension[2] / target_aspect
         
         if m2t > 1:
-            margin = (m2t - 1) * m.scaled_dimension[1] / 2
+            margin = (m2t - 1) * media.scaled_dimension[1] / 2
             args.extend("-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin)).split())
             args.extend("-ass-force-style ScaleX={0}".format(1/float(m2t)).split())
     else:
         # -vf expand does its own non-square pixel adjustment;
         # m.original_dimension is fine
-        args.extend("-subpos 98 -vf-pre expand={0}::::1:{1}".format(m.original_dimension[0],disp_aspect).split())
+        args.extend("-subpos 98 -vf-pre expand={0}::::1:{1}".format(media.original_dimension[0],disp_aspect).split())
     return args
 
 def genlist(path):
@@ -220,8 +217,7 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
             return filehash
 
         schemas = ["http", "https"]
-        # [www, splayer, splayer1~12].shooter.cn
-        servers = ["splayer1", "splayer3", "splayer4"]
+        servers = ["www", "splayer"] + ["splayer"+str(i) for i in range(1,13)]
 
         import random
         boundary = "-"*28 + "{0:x}".format(random.getrandbits(48))
@@ -337,13 +333,17 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
 
     cmd_conn_write_end.send(cmds)
 
+#todo: class again
+class SubFetcher(object):
+    pass
+
 class MPlayer(object):
     # TODO: "not compiled in option"
     last_timestamp = 0.0
     last_exit_status = None
 
     def identify(self, filelist=[]):
-        p = Popen([self.__path]+"-vo null -ao null -frames 0 -identify".split()+filelist, stdout=PIPE, stderr=PIPE)
+        p = subprocess.Popen([self.__path]+"-vo null -ao null -frames 0 -identify".split()+filelist, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return [l for l in p.communicate()[0].splitlines() if l.startswith("ID_")]
 
     def support(self, opt):
@@ -406,7 +406,7 @@ class MPlayer(object):
         if dry_run:
             return
 
-        self.__process = Popen(args, stdin=sys.stdin, stdout=PIPE, stderr=None)
+        self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
 
         if cmd_conn_read_end:
             proc_cmd_sender = multiprocessing.Process(target=self.cmd, args=(cmd_conn_read_end,))
@@ -537,10 +537,10 @@ class Media:
 
 class CmdLineParser:
     """ Attributes:
-      self.application
-      self.files
-      self.args
-      self.bad_args
+      application
+      files
+      args
+      bad_args
     """
     def __init__(self, args, mplayer):
         self.__args = args[:]

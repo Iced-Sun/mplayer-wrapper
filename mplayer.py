@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/02/29 15:03:52>
+# Time-stamp: <subi 2012/03/01 16:10:24>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -12,18 +12,21 @@
 # TODO:
 # 1. resume last played position
 # 2. remember last volume
-# 3. remember last volume/hue/contrast for continuous playing (don't need data persistance)
+# 3. remember last volume/hue/contrast for continuous playing (don't need data
+#    persistance)
 # 4. shooter sometimes return a false subtitle with the same time length. find a
 #    cure. (using zenity, pygtk, or both?)
 # 5. chardet instead of enca?
 # 6. support a,b,c... in continuous playing?
+# 7. dedicated dir for subs?
+# 8. should split class MPlayer to 2 classes: one holds metainfo, the other for
+#    manuplating mplayer instance. 
 
 import logging
-import os
-import sys
+import os, sys, time
 import struct
-import threading
 import urllib2
+import multiprocessing
 from subprocess import Popen
 from subprocess import PIPE
 from fractions import Fraction
@@ -203,91 +206,8 @@ def genlist(path):
         else: break
     return results
 
-class SubFetcher:
-    """Reference: http://code.google.com/p/sevenever/source/browse/trunk/misc/fetchsub.py
-    """
-    subtitles = []
-    save_dir = ""
-
-    def do(self):
-        self.save_dir = "test for mp"
-        self.fetch()
-        self.save()
-        self.activate_in_mplayer()
-        
-    def __init__(self, m):
-        self.save_dir = os.path.splitext(m.fullpath)[0]
-        self.__build_data(m)
-        
-        self.req = urllib2.Request(self.url)
-        for h in self.header: self.req.add_header(h[0],h[1])
-        self.req.add_data(self.data)
-
-    def fetch(self):
-        def parse_package(response):
-            c = response.read(8)
-            package_length, desc_length = struct.unpack("!II", c)
-            description = response.read(desc_length).decode("UTF-8")
-
-            logging.info("Length of current package in bytes: {0}".format(package_length))
-            
-            c = response.read(5)
-            package_length, file_count = struct.unpack("!IB", c)
-
-            logging.info("{0} subtitles in current package ({1})".format(file_count,description))
-
-            for j in range(file_count):
-                parse_file(response)
-
-        def parse_file(response):
-            c = response.read(8)
-            filepack_length, ext_length = struct.unpack("!II", c)
-
-            file_ext = response.read(ext_length)
-                
-            c = response.read(4)
-            file_length = struct.unpack("!I", c)[0]
-            subtitle = response.read(file_length)
-            if subtitle.startswith("\x1f\x8b"):
-                import gzip
-                from cStringIO import StringIO
-                self.subtitles.append([file_ext, gzip.GzipFile(fileobj=StringIO(subtitle)).read()])
-            else:
-                logging.warning("Unknown format or incomplete data. Trying again...")
-
-        response = urllib2.urlopen(self.req)
-
-        c = response.read(1)
-        package_count = struct.unpack("!b", c)[0]
-
-        logging.info("{0} subtitle packages found".format(package_count))
-
-        for i in range(package_count):
-            parse_package(response)
-        logging.info("{0} subtitle(s) fetched.".format(len(self.subtitles)))
-
-        # todo: enumerate?
-        for i in range(len(self.subtitles)):
-            suffix = str(i) if i>0 else ""
-            self.subtitles[i][0] = self.save_dir + suffix + '.' + self.subtitles[i][0]
-
-    def save(self):
-        enca = which("enca")
-        for sub in self.subtitles:
-            logging.info("Saving subtitle as {0}".format(sub[0]))
-            f = open(sub[0],"wb")
-            f.write(sub[1])
-            f.close()
-            if enca:
-                logging.info("Convert {0} to UTF-8".format(sub[0]))
-                Popen("enca -c -x utf8 -L zh".split()+[sub[0]]).communicate()
-
-    def activate_in_mplayer(self):
-        for sub in self.subtitles:
-            MPlayer.cmd("sub_load \"{0}\"".format(sub[0]))
-        MPlayer.cmd("sub_file 0")
-
-    def __build_data(self,m):
+def handle_shooter_subtitles(media, cmd_conn_write_end):
+    def build_req(m):
         def hashing(path):
             sz = os.path.getsize(path)
             if sz>8192:
@@ -300,55 +220,154 @@ class SubFetcher:
             return filehash
 
         schemas = ["http", "https"]
-        # [www, svlayer, splayer5].shooter.cn has issues
-        servers = ["splayer1", "splayer2", "splayer3", "splayer4"]
+        # [www, splayer, splayer1~12].shooter.cn
+        servers = ["splayer1", "splayer3", "splayer4"]
 
         import random
         boundary = "-"*28 + "{0:x}".format(random.getrandbits(48))
 
-        self.url = "{0}://{1}.shooter.cn/api/subapi.php".format(random.choice(schemas), random.choice(servers))
-        
-        self.header = []
-        self.header.append(["User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543))])
-        self.header.append(["Content-Type", "multipart/form-data; boundary={0}".format(boundary)])
+        url = "{0}://{1}.shooter.cn/api/subapi.php".format(random.choice(schemas), random.choice(servers))
 
-        data = []
-        data.append(["pathinfo", os.path.join("c:/", os.path.basename(os.path.dirname(m.fullpath)), os.path.basename(m.fullpath))])
-        data.append(["filehash", hashing(m.fullpath)])
+        header = []
+        header.append(["User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543))])
+        header.append(["Content-Type", "multipart/form-data; boundary={0}".format(boundary)])
+
+        items = []
+        items.append(["pathinfo", os.path.join("c:/", os.path.basename(os.path.dirname(m.fullpath)), os.path.basename(m.fullpath))])
+        items.append(["filehash", hashing(m.fullpath)])
 #        data.append(["lang", "chn"])
 
-        self.data = ''.join(["--{0}\n"
-                             "Content-Disposition: form-data; name=\"{1}\"\n"
-                             "{2}\n".format(boundary, d[0], d[1]) for d in data]
-                            + ["--" + boundary + "--"])
+        data = ''.join(["--{0}\n"
+                        "Content-Disposition: form-data; name=\"{1}\"\n\n"
+                        "{2}\n".format(boundary, d[0], d[1]) for d in items]
+                       + ["--" + boundary + "--"])
 
         logging.debug("Will query server {0} with\n"
                       "{1}\n"
-                      "{2}\n".format(self.url,self.header,self.data))
-        
+                      "{2}\n".format(url,header,data))
+
+        req = urllib2.Request(url)
+        for h in header:
+            req.add_header(h[0],h[1])
+        req.add_data(data)
+
+        return req
+
+    def fetch_sub(req):
+        def parse_package(response):
+            c = response.read(8)
+            package_length, desc_length = struct.unpack("!II", c)
+            description = response.read(desc_length).decode("UTF-8")
+            if not description: description = "no description"
+
+            logging.info("Length of current package in bytes: {0}".format(package_length))
+
+            c = response.read(5)
+            package_length, file_count = struct.unpack("!IB", c)
+
+            logging.info("{0} subtitles in current package ({1})".format(file_count,description))
+
+            subs_in_pack = []
+            for j in range(file_count):
+                sub = parse_file(response)
+                if sub: subs_in_pack.append(sub)
+            return subs_in_pack
+
+        def parse_file(response):
+            c = response.read(8)
+            pack_len, ext_len = struct.unpack("!II", c)
+            ext = response.read(ext_len)
+
+            c = response.read(4)
+            file_len = struct.unpack("!I", c)[0]
+            sub = response.read(file_len)
+
+            if sub.startswith("\x1f\x8b"):
+                import gzip
+                from cStringIO import StringIO
+                return [ext, gzip.GzipFile(fileobj=StringIO(sub)).read()]
+            else:
+                logging.warning("Unknown format or incomplete data. Trying again...")
+                return None
+
+        ### function body
+
+        # wait for mplayer to settle up
+        time.sleep(0.5)
+
+        response = urllib2.urlopen(req)
+
+        c = response.read(1)
+        package_count = struct.unpack("!b", c)[0]
+
+        logging.info("{0} subtitle packages found".format(package_count))
+
+        subs = []
+        for i in range(package_count):
+            subs.extend(parse_package(response))
+        logging.info("{0} subtitle(s) fetched.".format(len(subs)))
+
+        # todo: enumerate?
+        for i in range(len(subs)):
+            suffix = str(i) if i>0 else ""
+            subs[i][0] = suffix + '.' + subs[i][0]
+
+        return subs
+
+    ### function body
+    subs = fetch_sub(build_req(media))
+
+    prefix = os.path.splitext(media.fullpath)[0]
+
+    # save subtitles and generate mplayer fifo commands
+    cmds = []
+    enca = which("enca")
+    for sub in subs:
+        path = prefix + sub[0]
+        logging.info("Saving subtitle as {0}".format(path))
+        f = open(path,"wb")
+        f.write(sub[1])
+        f.close()
+        if enca:
+            logging.info("Convert {0} to UTF-8".format(path))
+            Popen("enca -c -x utf8 -L zh".split()+[path]).communicate()
+        cmds.append("sub_load \"{0}\"".format(path))
+    if subs:
+        cmds.append("sub_file 0")
+
+    cmd_conn_write_end.send(cmds)
+
 class MPlayer(object):
     # TODO: "not compiled in option"
     last_timestamp = 0.0
     last_exit_status = None
 
-    def identify(self,filelist=[]):
+    def identify(self, filelist=[]):
         p = Popen([self.__path]+"-vo null -ao null -frames 0 -identify".split()+filelist, stdout=PIPE, stderr=PIPE)
         return [l for l in p.communicate()[0].splitlines() if l.startswith("ID_")]
 
-    def support(self,opt):
+    def support(self, opt):
         # 1: take no param
         # 2: take 1 param
         if not self.__opts: self.__gen_opts()
         return self.__opts[opt] if opt in self.__opts else 0
 
-    def cmd(self,cmd):
-        if self.__process.poll() == None:
-            logging.debug("Sending command <{0}> to <{1}>".format(cmd, self.__fifo_path))
-            fifo = open(self.__fifo_path,"w")
-            fifo.write(cmd+'\n')
-            fifo.close()
+    def cmd(self, cmd_pipe_read_end):
+        def send_one_cmd(c):
+            if self.__process.poll() == None:
+                logging.debug("Sending command <{0}> to <{1}>".format(c, self.__fifo_path))
+                fifo = open(self.__fifo_path,"w")
+                fifo.write(c+'\n')
+                fifo.close()
+
+        while True:
+            if cmd_pipe_read_end.poll():
+                for c in cmd_pipe_read_end.recv():
+                    send_one_cmd(c)
+            else:
+                time.sleep(1)
         
-    def play(self,args=[]):
+    def play(self, args=[], cmd_conn_read_end = None):
         def tee(p, f=sys.stdout):
             def flush(f,lines):
                 f.write(''.join(lines.pop(0)))
@@ -384,10 +403,19 @@ class MPlayer(object):
 
         logging.debug("Final command:\n{0}".format(' '.join(args)))
 
-        if dry_run: return
+        if dry_run:
+            return
 
         self.__process = Popen(args, stdin=sys.stdin, stdout=PIPE, stderr=None)
+
+        if cmd_conn_read_end:
+            proc_cmd_sender = multiprocessing.Process(target=self.cmd, args=(cmd_conn_read_end,))
+            proc_cmd_sender.start()
+        
+        # block untill self.__process exits
         tee(self.__process)
+        if cmd_conn_read_end and proc_cmd_sender.is_alive():
+            proc_cmd_sender.terminate()
 
         logging.debug("Last timestamp: {0}".format(self.last_timestamp))
         logging.debug("Last exit status: {0}".format(self.last_exit_status))
@@ -397,6 +425,7 @@ class MPlayer(object):
         self.__fifo_path = fifo.path
         self.__args = fifo.args + default_args
         self.__opts = {}
+        self.__process = None
         for p in ["/opt/bin/mplayer","/usr/local/bin/mplayer","/usr/bin/mplayer"]:
             if os.path.isfile(p): self.__path = p
         if not self.__path:
@@ -599,12 +628,21 @@ def run():
             if not media.exist:
                 logging.debug("{0} does not exist".format(f))
 
+            proc_fetch = None
+            cmd_conn_read_end = None
             if media.is_video:
                 # todo: what if -noass specified?
-                args += expand_video(media, "ass", screen_dim[2])
+                args.extend(expand_video(media, "ass", screen_dim[2]))
 
-            SubFetcher(media)
-            mplayer.play(args+[f])
+                cmd_conn_read_end, cmd_conn_write_end = multiprocessing.Pipe(False)
+
+                proc_fetch = multiprocessing.Process(target=handle_shooter_subtitles, args=(media, cmd_conn_write_end))
+                proc_fetch.start()
+            
+            mplayer.play(args+[f], cmd_conn_read_end)
+            if proc_fetch and proc_fetch.is_alive():
+                logging.info("Terminating subtitle fetching...")
+                proc_fetch.terminate()
 
             if mplayer.last_exit_status == "Quit":
                 break

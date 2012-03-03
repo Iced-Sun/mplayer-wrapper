@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/02 00:04:40>
+# Time-stamp: <subi 2012/03/03 19:06:33>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -311,6 +311,7 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
         return subs
 
     ### function body
+    logging.info("Connecting to shooter server...")
     subs = fetch_sub(build_req(media))
 
     prefix = os.path.splitext(media.fullpath)[0]
@@ -326,7 +327,7 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
         f.close()
         if enca:
             logging.info("Convert {0} to UTF-8".format(path))
-            Popen("enca -c -x utf8 -L zh".split()+[path]).communicate()
+            subprocess.Popen("enca -c -x utf8 -L zh".split()+[path]).communicate()
         cmds.append("sub_load \"{0}\"".format(path))
     if subs:
         cmds.append("sub_file 0")
@@ -636,8 +637,9 @@ def run():
 
                 cmd_conn_read_end, cmd_conn_write_end = multiprocessing.Pipe(False)
 
-                proc_fetch = multiprocessing.Process(target=handle_shooter_subtitles, args=(media, cmd_conn_write_end))
-                proc_fetch.start()
+                if not media.subtitle_had.endswith("text"):
+                    proc_fetch = multiprocessing.Process(target=handle_shooter_subtitles, args=(media, cmd_conn_write_end))
+                    proc_fetch.start()
             
             mplayer.play(args+[f], cmd_conn_read_end)
             if proc_fetch and proc_fetch.is_alive():

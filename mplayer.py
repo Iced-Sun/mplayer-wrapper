@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/03 19:06:33>
+# Time-stamp: <subi 2012/03/10 23:50:33>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -19,9 +19,11 @@
 # 5. chardet instead of enca?
 # 6. support a,b,c... in continuous playing?
 # 7. dedicated dir for subs?
-# 8. should split class MPlayer to 2 classes: one holds metainfo, the other for
+# 8. split MPlayer to 2 classes: one holds metainfo, the other for
 #    manuplating mplayer instance.
-# 9. filehash should be contained in class Media
+# 9. filehash should be in Media
+# 10. xset s off
+# 11. retry on failure of fetching
 
 import logging
 import os, sys, time
@@ -51,7 +53,11 @@ def check_dimension():
     if which("xrandr"):
         p = subprocess.Popen(["xrandr"], stdout = subprocess.PIPE)
         for line in p.communicate()[0].splitlines():
-            if '*' in line:
+            if line.startswith("*"):
+                dim[0] = int(line.split()[1])
+                dim[1] = int(line.split()[3])
+                break
+            elif '*' in line:
                 d = line.split()[0].split('x')
                 if d[0] > dim[0]: dim = map(int,d)
 
@@ -229,7 +235,9 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
         header.append(["Content-Type", "multipart/form-data; boundary={0}".format(boundary)])
 
         items = []
-        items.append(["pathinfo", os.path.join("c:/", os.path.basename(os.path.dirname(m.fullpath)), os.path.basename(m.fullpath))])
+        items.append(["pathinfo", os.path.join("c:/",
+                                               os.path.basename(os.path.dirname(m.fullpath)),
+                                               os.path.basename(m.fullpath))])
         items.append(["filehash", hashing(m.fullpath)])
 #        data.append(["lang", "chn"])
 
@@ -238,7 +246,7 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
                         "{2}\n".format(boundary, d[0], d[1]) for d in items]
                        + ["--" + boundary + "--"])
 
-        logging.debug("Will query server {0} with\n"
+        logging.debug("Querying server {0} with\n"
                       "{1}\n"
                       "{2}\n".format(url,header,data))
 

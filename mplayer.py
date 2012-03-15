@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/15 10:32:27>
+# Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
+# Time-stamp: <subi 2012/03/15 10:37:44>
 #
-# mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
-# be a transparent interface. It is convenient to rename the script to "mplayer"
-# and place it in your $PATH (don't overwrite the real MPlayer); you would not
-# even notice its existence.
+# mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
+# It is convenient to rename the script to "mplayer" and place it in your $PATH
+# (don't overwrite the real MPlayer); you would not even notice its existence.
 
 # TODO:
 # 1. resume last played position

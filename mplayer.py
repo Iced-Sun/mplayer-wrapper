@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010,2011 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/10 23:50:33>
+# Time-stamp: <subi 2012/03/15 10:30:01>
 #
 # mplayer-wrapper is a simple frontend for MPlayer written in Python, trying to
 # be a transparent interface. It is convenient to rename the script to "mplayer"
@@ -661,4 +661,8 @@ if __name__ == "__main__":
     dry_run = False
     logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
-    run()
+    print sys.hexversion
+    if sys.hexversion < 0x02060000:
+        logging.info("Please run the script with python>=2.6.0")
+    else:
+        run()

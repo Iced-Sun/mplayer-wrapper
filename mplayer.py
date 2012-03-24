@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/15 10:37:44>
+# Time-stamp: <subi 2012/03/24 18:14:32>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -440,7 +440,7 @@ class MPlayer(object):
             raise RuntimeError,"Cannot find a mplayer binary."
 
     def __gen_opts(self):
-        options = Popen([self.__path, "-list-options"], stdout=PIPE).communicate()[0].splitlines()
+        options = subprocess.Popen([self.__path, "-list-options"], stdout=subprocess.PIPE).communicate()[0].splitlines()
         options = options[3:len(options)-3]
 
         for line in options:

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/24 18:14:32>
+# Time-stamp: <subi 2012/03/24 19:15:02>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -523,7 +523,7 @@ class Media:
         self.original_dimension[0] = int(info["ID_VIDEO_WIDTH"])
         self.original_dimension[1] = int(info["ID_VIDEO_HEIGHT"])
         if "ID_VIDEO_ASPECT" in info:
-            self.original_dimension[2] = Fraction(info["ID_VIDEO_ASPECT"])
+            self.original_dimension[2] = Fraction(info["ID_VIDEO_ASPECT"]).limit_denominator(100)
         self.scaled_dimension = self.original_dimension[:]
 
         # amend the dim params

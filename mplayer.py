@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/24 19:15:02>
+# Time-stamp: <subi 2012/03/25 20:53:09>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -221,7 +221,8 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
                 filehash = ""
             return filehash
 
-        schemas = ["http", "https"]
+        import httplib
+        schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]
         servers = ["www", "splayer"] + ["splayer"+str(i) for i in range(1,13)]
 
         import random

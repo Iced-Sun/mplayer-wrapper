@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/26 13:07:37>
+# Time-stamp: <subi 2012/03/26 13:27:18>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -644,7 +644,7 @@ def run():
                 if "-noass" in parser.args:
                     args.extend(expand_video(media, "noass", screen_dim[2]))
                 else:
-                    args.extend(expand_video(media, "noass", screen_dim[2]))
+                    args.extend(expand_video(media, "ass", screen_dim[2]))
 
                 cmd_conn_read_end, cmd_conn_write_end = multiprocessing.Pipe(False)
 

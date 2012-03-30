@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/30 19:44:43>
+# Time-stamp: <subi 2012/03/30 20:48:44>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -25,6 +25,7 @@
 # 8. proper subcp handling
 # 9. give some visual feedback when failing to fetch subtitles
 # 10: "not compiled in option"
+# 11: IPCPipe need reconsidering
 
 import logging
 import os, sys, time
@@ -179,7 +180,7 @@ class VideoExpander(object):
     def __init__(self):
         self.__use_ass = True
 
-        if not MPlayerContext().support("ass") or "-noass" in ArgsParser().args:
+        if not MPlayerContext().support("ass") or "-noass" in CmdLineParser().args:
             self.__use_ass = False
         else:
             libass_path = None
@@ -193,64 +194,6 @@ class VideoExpander(object):
                 p = subprocess.Popen(["ldd",libass_path], stdout=subprocess.PIPE)
                 if not "libfontconfig" in p.communicate()[0]:
                     self.__use_ass = False
-
-class PlaylistGenerator(object):
-    """For the given path, generate a file list for continuous playing.
-    """
-    def __gen(self, path):
-        def translate(s):
-            dic = dict(zip(u'零壹贰叁肆伍陆柒捌玖〇一二三四五六七八九','01234567890123456789'))
-            loc = locale.getdefaultlocale()
-            s = s.decode(loc[1])
-            return ''.join([dic.get(c,c) for c in s]).encode(loc[1])
-        def split_by_int(s):
-            return [x for x in re.split('(\d+)', translate(s)) if x != '']
-        def make_sort_key(s):
-            return [(int(x) if x.isdigit() else x) for x in split_by_int(s)]
-        def strip_to_int(s,prefix):
-            if prefix and prefix in s:
-                s = s.partition(prefix)[2]
-            s = split_by_int(s)[0]
-            return int(s) if s.isdigit() else float('NaN')
-    
-        pdir, basename = os.path.split(os.path.abspath(path))
-
-        # basic candidate filtering
-        # 1. extention
-        files = [f for f in os.listdir(pdir) if f.endswith(os.path.splitext(basename)[1])]
-        # 2. remove previous episodes
-        files.sort(key=make_sort_key)
-        del files[0:files.index(basename)]
-
-        # only one file in the candidate list
-        if len(files) == 1:
-            return [os.path.join(pdir,basename)]
-
-        # find the common prefix
-        keys = [split_by_int(f) for f in files[0:2]]
-        prefix_items = []
-        for key in zip(keys[0],keys[1]):
-            if key[0] == key[1]:
-                prefix_items.append(key[0])
-            else:
-                break
-        prefix = ''.join(prefix_items)
-
-        # generate the list
-        results = [os.path.join(pdir,files[0])]
-        for i,f in enumerate(files[1:]):
-            if strip_to_int(f,prefix) - strip_to_int(files[i],prefix) == 1:
-                results.append(os.path.join(pdir,f))
-            else:
-                break
-
-        return results
-
-    def __init__(self,files):
-        if not len(files)==1 or not os.path.exists(files[0]):
-            self.playlist = files
-        else:
-            self.playlist = self.__gen(files[0])
 
 def handle_shooter_subtitles(media, cmd_conn_write_end):
     def build_req(m):
@@ -391,50 +334,66 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
 class SubFetcher(object):
     pass
 
-@singleton
-class MPlayerContext(object):
-    path = None
+class PlaylistGenerator(object):
+    """For the given path, generate a file list for continuous playing.
+    """
+    def __init__(self,files):
+        if not len(files)==1 or not os.path.exists(files[0]):
+            self.playlist = files
+        else:
+            self.playlist = self.__gen(files[0])
+
+    def __gen(self, path):
+        def translate(s):
+            dic = dict(zip(u'零壹贰叁肆伍陆柒捌玖〇一二三四五六七八九','01234567890123456789'))
+            loc = locale.getdefaultlocale()
+            s = s.decode(loc[1])
+            return ''.join([dic.get(c,c) for c in s]).encode(loc[1])
+        def split_by_int(s):
+            return [x for x in re.split('(\d+)', translate(s)) if x != '']
+        def make_sort_key(s):
+            return [(int(x) if x.isdigit() else x) for x in split_by_int(s)]
+        def strip_to_int(s,prefix):
+            if prefix and prefix in s:
+                s = s.partition(prefix)[2]
+            s = split_by_int(s)[0]
+            return int(s) if s.isdigit() else float('NaN')
     
-    def support(self, opt):
-        """return value:
-        0: don't support the option
-        1: support and take no param
-        2: support and take 1 param
-        """
-        if not self.__opts: self.__gen_opts()
-        return self.__opts[opt] if opt in self.__opts else 0
+        pdir, basename = os.path.split(os.path.abspath(path))
 
-    def __init__(self):
-        self.__opts = {}
-        for p in ["/opt/bin/mplayer","/usr/local/bin/mplayer","/usr/bin/mplayer"]:
-            if os.path.isfile(p):
-                self.path = p
+        # basic candidate filtering
+        # 1. extention
+        files = [f for f in os.listdir(pdir) if f.endswith(os.path.splitext(basename)[1])]
+        # 2. remove previous episodes
+        files.sort(key=make_sort_key)
+        del files[0:files.index(basename)]
+
+        # only one file in the candidate list
+        if len(files) == 1:
+            return [os.path.join(pdir,basename)]
+
+        # find the common prefix
+        keys = [split_by_int(f) for f in files[0:2]]
+        prefix_items = []
+        for key in zip(keys[0],keys[1]):
+            if key[0] == key[1]:
+                prefix_items.append(key[0])
+            else:
                 break
-        if not self.path:
-            raise RuntimeError,"Cannot find a mplayer binary."
+        prefix = ''.join(prefix_items)
 
-    def __gen_opts(self):
-        options = subprocess.Popen([self.path, "-list-options"], stdout=subprocess.PIPE).communicate()[0].splitlines()
-        options = options[3:len(options)-3]
+        # generate the list
+        results = [os.path.join(pdir,files[0])]
+        for i,f in enumerate(files[1:]):
+            if strip_to_int(f,prefix) - strip_to_int(files[i],prefix) == 1:
+                results.append(os.path.join(pdir,f))
+            else:
+                break
 
-        for line in options:
-            s = line.split();
-            opt = s[0].split(":") # take care of option:suboption
-            if opt[0] in self.__opts:
-                continue
-            self.__opts[opt[0]] = (2 if len(opt)==2 or s[1]!="Flag" else 1)
-
-        # handle vf* af*:
-        # mplayer reports option name as vf*, which is a family of options.
-        del self.__opts['af*']
-        del self.__opts['vf*']
-        for extra in ["af","af-adv","af-add","af-pre","af-del","vf","vf-add","vf-pre","vf-del"]:
-            self.__opts[extra] = 2
-        for extra in ["af-clr","vf-clr"]:
-            self.__opts[extra] = 1
+        return results
 
 @singleton
-class ArgsParser:
+class CmdLineParser:
     """ Attributes:
       role, files, args, bad_args
     """
@@ -487,13 +446,52 @@ class ArgsParser:
         self.files = PlaylistGenerator(self.files).playlist
         
 @singleton
+class MPlayerContext(object):
+    path = None
+    
+    def support(self, opt):
+        """return value:
+        0: don't support the option
+        1: support and take no param
+        2: support and take 1 param
+        """
+        if not self.__opts: self.__gen_opts()
+        return self.__opts[opt] if opt in self.__opts else 0
+
+    def __init__(self):
+        self.__opts = {}
+        for p in ["/opt/bin/mplayer","/usr/local/bin/mplayer","/usr/bin/mplayer"]:
+            if os.path.isfile(p):
+                self.path = p
+                break
+        if not self.path:
+            raise RuntimeError,"Cannot find a mplayer binary."
+
+    def __gen_opts(self):
+        options = subprocess.Popen([self.path, "-list-options"], stdout=subprocess.PIPE).communicate()[0].splitlines()
+        options = options[3:len(options)-3]
+
+        for line in options:
+            s = line.split();
+            opt = s[0].split(":") # take care of option:suboption
+            if opt[0] in self.__opts:
+                continue
+            self.__opts[opt[0]] = (2 if len(opt)==2 or s[1]!="Flag" else 1)
+
+        # handle vf* af*:
+        # mplayer reports option name as vf*, which is a family of options.
+        del self.__opts['af*']
+        del self.__opts['vf*']
+        for extra in ["af","af-adv","af-add","af-pre","af-del","vf","vf-add","vf-pre","vf-del"]:
+            self.__opts[extra] = 2
+        for extra in ["af-clr","vf-clr"]:
+            self.__opts[extra] = 1
+
+@singleton
 class MPlayerInstance(object):
     last_timestamp = 0.0
     last_exit_status = None
 
-    def is_alive(self):
-        return self.__process and not self.__process.poll()
-    
     def identify(self, filelist):
         args = [MPlayerContext().path] +"-vo null -ao null -frames 0 -identify".split() + filelist
         p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -533,9 +531,10 @@ class MPlayerInstance(object):
                 f.write(l)
                 f.flush()
 
-        args = [MPlayerContext().path] + Fifo().args + ArgsParser().args
+        args = [MPlayerContext().path]
         if media:
             args += media.args + [media.filename]
+        args += CmdLineParser().args
             
         logging.debug("Final command:\n{0}".format(' '.join(args)))
 
@@ -551,40 +550,8 @@ class MPlayerInstance(object):
     def __init__(self):
         pass
 
-@singleton
-class IPCPipe(object):
-    def send(self, cmd):
-        self.writer.send(cmd)
-    
-    def terminate(self):
-        self.__proc_listener.terminate()
-
-    def __init__(self):
-        def listen(fifo_path):
-            """Run in another process. how could pass the MPlayer subprocess to it?
-            """
-            def send_cmd(c):
-                # FIXME
-                if True: #mplayer.is_alive():
-                    logging.debug("Sending command \"{0}\" to {1}".format(c, fifo_path))
-                    fifo = open(fifo_path,"w")
-                    fifo.write(c+'\n')
-                    fifo.close()
-
-            while True:
-                if self.reader.poll():
-                    for c in self.reader.recv():
-                        send_cmd(c)
-                else:
-                    time.sleep(2)
-
-        self.reader, self.writer = multiprocessing.Pipe(False)
-
-        self.__proc_listener = multiprocessing.Process(target=listen, args=(Fifo().path,))
-        self.__proc_listener.start()
-
 class MediaContext:
-    """Construct media metadata by midentify; may apply "proper" fixes
+    """Construct media metadata and args for mplayer; may apply "proper" fixes
     """
     exist = True
 
@@ -601,10 +568,16 @@ class MediaContext:
 
     subtitle_had = "none"
 
+    def destory(self):
+        if self.__proc_fetcher and self.__proc_fetcher.is_alive():
+            logging.info("Terminating subtitle fetching...")
+            self.__proc_fetcher.terminate()
+    
     def __init__(self, path):
         """Parse the output by midentify.
         """
         self.filename = path
+        self.__proc_fetcher = None
 
         info = {}
         for l in MPlayerInstance().identify([path]):
@@ -620,7 +593,11 @@ class MediaContext:
         if self.is_video:
             self.__gen_video_info(info)
             self.__gen_subtitle_info(info)
-            self.args = VideoExpander().expand(self)
+
+            self.args = VideoExpander().expand(self) + "-input file={0}".format(Fifo().path).split()
+            if not dry_run and not self.subtitle_had.endswith("text"):
+                self.__proc_fetcher = multiprocessing.Process(target=handle_shooter_subtitles, args=(self, IPCPipe().writer))
+                self.__proc_fetcher.start()
             
         self.__log()
 
@@ -672,42 +649,63 @@ class MediaContext:
             self.subtitle_had = "external vobsub"
 
 @singleton
+class IPCPipe(object):
+    def send(self, cmd):
+        self.writer.send(cmd)
+    
+    def terminate(self):
+        self.__proc_listener.terminate()
+
+    def __init__(self):
+        def listen(fifo_path):
+            """Run in another process. how could pass the MPlayer subprocess to it?
+            """
+            def send_cmd(c):
+                # FIXME
+                if True: #mplayer.is_alive():
+                    logging.debug("Sending command \"{0}\" to {1}".format(c, fifo_path))
+                    fifo = open(fifo_path,"w")
+                    fifo.write(c+'\n')
+                    fifo.close()
+
+            while True:
+                if self.reader.poll():
+                    for c in self.reader.recv():
+                        send_cmd(c)
+                else:
+                    time.sleep(2)
+
+        self.reader, self.writer = multiprocessing.Pipe(False)
+
+        self.__proc_listener = multiprocessing.Process(target=listen, args=(Fifo().path,))
+        self.__proc_listener.start()
+
+@singleton
 class Fifo:
     def __init__(self):
         import tempfile
         self.__tmpdir = tempfile.mkdtemp()
         self.path = os.path.join(self.__tmpdir, "mplayer_fifo")
-        self.args = "-input file={0}".format(self.path).split()
         os.mkfifo(self.path)
     def __del__(self):
         os.unlink(self.path)
         os.rmdir(self.__tmpdir)
 
 def run():
-    if ArgsParser().role == "identifier":
-        print '\n'.join(MPlayerInstance().identify(ArgsParser().files))
-    elif ArgsParser().role == "player":
-        if not ArgsParser().files:
+    if CmdLineParser().role == "identifier":
+        print '\n'.join(MPlayerInstance().identify(CmdLineParser().files))
+    elif CmdLineParser().role == "player":
+        if not CmdLineParser().files:
             MPlayerInstance().play()
         else:
             IPCPipe()
-            for f in ArgsParser().files:
+            for f in CmdLineParser().files:
                 media = MediaContext(f)
-
-                proc_fetch = None
-                if media.is_video:
-                    if not media.subtitle_had.endswith("text"):
-                        proc_fetch = multiprocessing.Process(target=handle_shooter_subtitles, args=(media, IPCPipe().writer))
-                        proc_fetch.start()
-
                 MPlayerInstance().play(media)
-                if proc_fetch and proc_fetch.is_alive():
-                    logging.info("Terminating subtitle fetching...")
-                    proc_fetch.terminate()
+                media.destory()
 
                 if MPlayerInstance().last_exit_status == "Quit":
                     break
-
             IPCPipe().terminate()
             
 if __name__ == "__main__":

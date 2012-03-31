@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/31 13:06:42>
+# Time-stamp: <subi 2012/03/31 13:11:06>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -196,6 +196,7 @@ class VideoExpander(object):
 
 def convert2utf8(s):
     def guess_enc(s):
+        # todo: add error handling; the current version is too strict
         # test if UTF-8 (reliable)
         # http://www.w3.org/International/questions/qa-forms-utf-8
         #  [\x09\x0A\x0D\x20-\x7E]            # ASCII
@@ -218,6 +219,7 @@ def convert2utf8(s):
                     ")*\Z",s):
             return "utf8"
 
+        # todo: improve performance?
         # assume chinese
         # test if gb2312 or big5 (reliable when have enough chinese character)
         # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
@@ -230,7 +232,7 @@ def convert2utf8(s):
             return "gbk"
         else:
             return "big5"
-
+    
     enc = guess_enc(s)
     if enc == "utf8":
         return s

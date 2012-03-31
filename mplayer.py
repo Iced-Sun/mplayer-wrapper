@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/30 20:48:44>
+# Time-stamp: <subi 2012/03/31 13:06:42>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -18,14 +18,13 @@
 #    persistance)
 # 3. shooter sometimes return a false subtitle with the same time length. find a
 #    cure. (using zenity, pygtk, or both?)
-# 4. chardet instead of enca?
-# 5. filehash should be in Media
-# 6. xset s off
-# 7. retry on failure of fetching
-# 8. proper subcp handling
-# 9. give some visual feedback when failing to fetch subtitles
-# 10: "not compiled in option"
-# 11: IPCPipe need reconsidering
+# 4. filehash should be in Media
+# 5. xset s off
+# 6. retry on failure of fetching
+# 7. proper subcp handling
+# 8. give some visual feedback when failing to fetch subtitles
+# 9: "not compiled in option"
+# 10: IPCPipe need reconsidering
 
 import logging
 import os, sys, time
@@ -195,6 +194,49 @@ class VideoExpander(object):
                 if not "libfontconfig" in p.communicate()[0]:
                     self.__use_ass = False
 
+def convert2utf8(s):
+    def guess_enc(s):
+        # test if UTF-8 (reliable)
+        # http://www.w3.org/International/questions/qa-forms-utf-8
+        #  [\x09\x0A\x0D\x20-\x7E]            # ASCII
+        #  [\xC2-\xDF][\x80-\xBF]             # non-overlong 2-byte
+        #  \xE0[\xA0-\xBF][\x80-\xBF]         # excluding overlongs
+        #  [\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}  # straight 3-byte
+        #  \xED[\x80-\x9F][\x80-\xBF]         # excluding surrogates
+        #  \xF0[\x90-\xBF][\x80-\xBF]{2}      # planes 1-3
+        #  [\xF1-\xF3][\x80-\xBF]{3}          # planes 4-15
+        #  \xF4[\x80-\x8F][\x80-\xBF]{2}      # plane 16
+        if re.match("\A("
+                    "[\x09\x0A\x0D\x20-\x7E]"
+                    "|[\xC2-\xDF][\x80-\xBF]"
+                    "|\xE0[\xA0-\xBF][\x80-\xBF]"
+                    "|[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}"
+                    "|\xED[\x80-\x9F][\x80-\xBF]"
+                    "|\xF0[\x90-\xBF][\x80-\xBF]{2}"
+                    "|[\xF1-\xF3][\x80-\xBF]{3}"
+                    "|\xF4[\x80-\x8F][\x80-\xBF]{2}"
+                    ")*\Z",s):
+            return "utf8"
+
+        # assume chinese
+        # test if gb2312 or big5 (reliable when have enough chinese character)
+        # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
+        l = len(re.findall("[\xA1-\xFE][\x40-\x7E]",s))
+        h = len(re.findall("[\xA1-\xFE][\xA1-\xFE]",s))
+
+        if l == 0:
+            return "gb2312"
+        elif float(l)/float(h) < 1.0/4.0:
+            return "gbk"
+        else:
+            return "big5"
+
+    enc = guess_enc(s)
+    if enc == "utf8":
+        return s
+    else:
+        return s.decode(enc,'ignore').encode("utf8")
+
 def handle_shooter_subtitles(media, cmd_conn_write_end):
     def build_req(m):
         def hashing(path):
@@ -318,11 +360,8 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
         path = prefix + sub[0]
         logging.info("Saving subtitle as {0}".format(path))
         f = open(path,"wb")
-        f.write(sub[1])
+        f.write(convert2utf8(sub[1]))
         f.close()
-        if enca:
-            logging.info("Convert {0} to UTF-8".format(path))
-            subprocess.Popen("enca -c -x utf8 -L zh".split()+[path]).communicate()
         cmds.append("sub_load \"{0}\"".format(path))
     if subs:
         cmds.append("sub_file 0")

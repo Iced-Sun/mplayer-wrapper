@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/02 00:12:17>
+# Time-stamp: <subi 2012/04/02 00:23:33>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -148,8 +148,7 @@ class VideoExpander(object):
         display_aspect = DimensionChecker().dim[2]
         subfont_pt = 18 * (DimensionChecker().dim[1] / 768)
         
-        # -subfont-autoscale has nothing to do with libass, only affect the osd and
-        # the plain old subtitle renderer
+        # -subfont-autoscale affects the osd and the plain old subtitle renderer
         args = "-subfont-autoscale 0 -subfont-osd-scale {0}".format(subfont_pt).split()
 
         if media.scaled_dimension[2] < Fraction(4,3):
@@ -390,7 +389,7 @@ class SubFetcher(object):
     pass
 
 class PlaylistGenerator(object):
-    """For the given path, generate a file list for continuous playing.
+    """Generate a list for continuous playing.
     """
     def __init__(self,files):
         if not len(files)==1 or not os.path.exists(files[0]):
@@ -465,7 +464,7 @@ class CmdLineParser:
             self.role = "player"
         elif "midentify" in app:
             self.role = "identifier"
-            self.files = self.__args_to_parse[:]
+            self.files = args_to_parse[:]
 
             args_to_parse = []
         else:
@@ -636,7 +635,7 @@ class MediaContext:
 
         info = {}
         for l in MPlayerInstance().identify([path]):
-            a = l.split('=',1)
+            a = l.partition("=")[2]
             info[a[0]] = a[1]
 
         if not "ID_FILENAME" in info:

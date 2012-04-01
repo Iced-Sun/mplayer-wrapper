@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/01 14:13:23>
+# Time-stamp: <subi 2012/04/01 14:17:21>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -26,6 +26,7 @@
 # 9: "not compiled in option"
 # 10: IPCPipe need reconsidering
 # 11: also convert on-disk subtitles to utf8 and add "-subcp utf8"
+# 12: more tests on font scale consistency (differet monitors, videos, ass/noass)
 
 import logging
 import os, sys, time
@@ -635,7 +636,7 @@ class MediaContext:
 
         info = {}
         for l in MPlayerInstance().identify([path]):
-            a = l.split('=')
+            a = l.split('=',1)
             info[a[0]] = a[1]
 
         if not "ID_FILENAME" in info:

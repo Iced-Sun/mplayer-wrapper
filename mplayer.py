@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/01 13:08:41>
+# Time-stamp: <subi 2012/04/02 00:09:53>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -79,12 +79,7 @@ class DimensionChecker(object):
 
 @singleton
 class VideoExpander(object):
-    """Given a MediaContext "m", expand the video to the display_aspect with
-    "method".
-
-    Return the arguments list for mplayer.
-
-    Video expanding attaches two black bands to the top and bottom of the video.
+    """Video expanding attaches two black bands to the top and bottom of the video.
     MPlayer will then render osds (subtitles etc.) within the bands.
         
     Two ways exist:
@@ -135,15 +130,20 @@ class VideoExpander(object):
     1. do expanding (easy)
     2. make font be of correct aspect (simply let ScaleX = video_Y/ex_video_Y )
         
-    Addtionally, we also want to place the subtitle as close to the picture as
+    Additionally, we also want to place the subtitle as close to the picture as
     possible (instead of the bottom of the screen, which is visual distracting).
-    This can be done via the ASS style tag "MarginV", which is the relative relative
-    in the ass rendering screen (i.e. the screan of PlayResX:PlayResY).
+    This can be done via the ASS style tag "MarginV", which is the relative
+    vertical margin in the ass rendering screen (i.e. the screan of
+    PlayResX:PlayResY).
         
     Another approach is just adding a black band that is wide enough to contain
     the subtitles, avoiding the use of "MarginV".
     """
     def expand(self, media):
+        """Given a MediaContext, expand the video.
+   
+        Return the arguments list for mplayer.
+        """
         display_aspect = DimensionChecker().dim[2]
         
         # -subfont-autoscale has nothing to do with libass, only affect the osd and
@@ -151,7 +151,7 @@ class VideoExpander(object):
         args = "-subfont-autoscale 2".split()
 
         if media.scaled_dimension[2] < Fraction(4,3):
-            # assume we will never face a narrower screen than 4:3
+            # assume video never narrow than 4:3
             args.extend("-vf-pre dsize=4/3".split())
         elif self.__use_ass:
             # feel free to change the scale for your favor.

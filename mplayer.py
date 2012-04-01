@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/03/31 13:11:06>
+# Time-stamp: <subi 2012/04/01 13:08:41>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -25,6 +25,7 @@
 # 8. give some visual feedback when failing to fetch subtitles
 # 9: "not compiled in option"
 # 10: IPCPipe need reconsidering
+# 11: also convert on-disk subtitles to utf8 and add "-subcp utf8"
 
 import logging
 import os, sys, time
@@ -196,33 +197,45 @@ class VideoExpander(object):
 
 def convert2utf8(s):
     def guess_enc(s):
-        # todo: add error handling; the current version is too strict
-        # test if UTF-8 (reliable)
         # http://www.w3.org/International/questions/qa-forms-utf-8
-        #  [\x09\x0A\x0D\x20-\x7E]            # ASCII
-        #  [\xC2-\xDF][\x80-\xBF]             # non-overlong 2-byte
-        #  \xE0[\xA0-\xBF][\x80-\xBF]         # excluding overlongs
-        #  [\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}  # straight 3-byte
-        #  \xED[\x80-\x9F][\x80-\xBF]         # excluding surrogates
-        #  \xF0[\x90-\xBF][\x80-\xBF]{2}      # planes 1-3
-        #  [\xF1-\xF3][\x80-\xBF]{3}          # planes 4-15
-        #  \xF4[\x80-\x8F][\x80-\xBF]{2}      # plane 16
-        if re.match("\A("
-                    "[\x09\x0A\x0D\x20-\x7E]"
-                    "|[\xC2-\xDF][\x80-\xBF]"
-                    "|\xE0[\xA0-\xBF][\x80-\xBF]"
-                    "|[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}"
-                    "|\xED[\x80-\x9F][\x80-\xBF]"
-                    "|\xF0[\x90-\xBF][\x80-\xBF]{2}"
-                    "|[\xF1-\xF3][\x80-\xBF]{3}"
-                    "|\xF4[\x80-\x8F][\x80-\xBF]{2}"
-                    ")*\Z",s):
-            return "utf8"
-
-        # todo: improve performance?
-        # assume chinese
-        # test if gb2312 or big5 (reliable when have enough chinese character)
         # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
+        ascii = ["[\x09\x0A\x0D\x20-\x7E]"]
+
+        gbk = []
+        gbk.append("[\xA1-\xA9][\xA1-\xFE]")              # Level GBK/1
+        gbk.append("[\xB0-\xF7][\xA1-\xFE]")              # Level GBK/2
+        gbk.append("[\x81-\xA0][\x40-\x7E\x80-\xFE]")     # Level GBK/3
+        gbk.append("[\xAA-\xFE][\x40-\x7E\x80-\xA0]")     # Level GBK/4
+        gbk.append("[\xA8-\xA9][\x40-\x7E\x80-\xA0]")     # Level GBK/5
+
+        big5 = []
+        big5.append("[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]")    # Special symbols
+        big5.append("\xA3[\xC0-\xFE]")                                             # Reserved, not for user-defined characters
+        big5.append("[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]")             # Frequently used characters
+        big5.append("\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]")              # Reserved for user-defined characters
+        big5.append("[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]")    # Less frequently used characters
+        big5.append("\xF9[\xD6-\xFE]|[\xFA-\xFE][\x40-\x7E\xA1-\xFE]")             # Reserved for user-defined characters
+
+        utf8 = []
+        utf8.append("[\x09\x0A\x0D\x20-\x7E]")            # ASCII
+        utf8.append("[\xC2-\xDF][\x80-\xBF]")             # non-overlong 2-byte
+        utf8.append("\xE0[\xA0-\xBF][\x80-\xBF]")         # excluding overlongs
+        utf8.append("[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}")  # straight 3-byte
+        utf8.append("\xED[\x80-\x9F][\x80-\xBF]")         # excluding surrogates
+        utf8.append("\xF0[\x90-\xBF][\x80-\xBF]{2}")      # planes 1-3
+        utf8.append("[\xF1-\xF3][\x80-\xBF]{3}")          # planes 4-15
+        utf8.append("\xF4[\x80-\x8F][\x80-\xBF]{2}")      # plane 16
+        
+        if len("".join(re.split("(?:"+"|".join(utf8)+")+",s))) < 20:
+            return "utf8"
+        elif len("".join(re.split("(?:"+"|".join(ascii+gbk)+")+",s))) < 20:
+            return "gbk"
+        elif len("".join(re.split("(?:"+"|".join(ascii+big5)+")+",s))) < 20:
+            return "big5"
+        else:
+            return "unknown"
+
+        ## another method to test gb2312 or big5
         l = len(re.findall("[\xA1-\xFE][\x40-\x7E]",s))
         h = len(re.findall("[\xA1-\xFE][\xA1-\xFE]",s))
 
@@ -232,9 +245,9 @@ def convert2utf8(s):
             return "gbk"
         else:
             return "big5"
-    
+                           
     enc = guess_enc(s)
-    if enc == "utf8":
+    if enc in ["utf8","unknown"]:
         return s
     else:
         return s.decode(enc,'ignore').encode("utf8")

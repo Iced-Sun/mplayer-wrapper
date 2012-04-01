@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/02 00:09:53>
+# Time-stamp: <subi 2012/04/02 00:12:17>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -26,6 +26,7 @@
 # 9: "not compiled in option"
 # 10: IPCPipe need reconsidering
 # 11: also convert on-disk subtitles to utf8 and add "-subcp utf8"
+# 12: more tests on font scale consistency (differet monitors, videos, ass/noass)
 
 import logging
 import os, sys, time
@@ -145,10 +146,11 @@ class VideoExpander(object):
         Return the arguments list for mplayer.
         """
         display_aspect = DimensionChecker().dim[2]
+        subfont_pt = 18 * (DimensionChecker().dim[1] / 768)
         
         # -subfont-autoscale has nothing to do with libass, only affect the osd and
         # the plain old subtitle renderer
-        args = "-subfont-autoscale 2".split()
+        args = "-subfont-autoscale 0 -subfont-osd-scale {0}".format(subfont_pt).split()
 
         if media.scaled_dimension[2] < Fraction(4,3):
             # assume video never narrow than 4:3
@@ -165,7 +167,6 @@ class VideoExpander(object):
 
             # expand_video_y:video_Y = (video_X/video_Y):(video_X/expanded_video_Y)
             m2t = media.scaled_dimension[2] / target_aspect
-        
             if m2t > 1:
                 margin = (m2t - 1) * media.scaled_dimension[1] / 2
                 args.extend("-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin)).split())
@@ -173,8 +174,8 @@ class VideoExpander(object):
         else:
             # -vf expand does its own non-square pixel adjustment;
             # m.original_dimension is fine
-            args.extend("-subpos 98 -vf-pre expand={0}::::1:{1}"
-                        .format(media.original_dimension[0], display_aspect).split())
+            args.extend("-subpos 98 -subfont-text-scale {0} -vf-pre expand={1}::::1:{2}"
+                        .format(subfont_pt*1.5, media.original_dimension[0], display_aspect).split())
         return args
         
     def __init__(self):
@@ -635,7 +636,7 @@ class MediaContext:
 
         info = {}
         for l in MPlayerInstance().identify([path]):
-            a = l.split('=')
+            a = l.split('=',1)
             info[a[0]] = a[1]
 
         if not "ID_FILENAME" in info:

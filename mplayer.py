@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/02 00:23:33>
+# Time-stamp: <subi 2012/04/02 00:26:30>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -482,7 +482,8 @@ class CmdLineParser:
                 self.files.extend(args_to_parse)
                 args_to_parse = []
             elif s.startswith("-"):
-                flag = MPlayerContext().support(s.split('-',1)[1])
+#                flag = MPlayerContext().support(s.split('-',1)[1])
+                flag = MPlayerContext().support(s.partition('-')[2])
                 if flag == 0:
                     self.bad_args.append(s)
                 elif flag == 1:
@@ -635,8 +636,8 @@ class MediaContext:
 
         info = {}
         for l in MPlayerInstance().identify([path]):
-            a = l.partition("=")[2]
-            info[a[0]] = a[1]
+            a = l.partition("=")
+            info[a[0]] = a[2]
 
         if not "ID_FILENAME" in info:
             self.exist = False;

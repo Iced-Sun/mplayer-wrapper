@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/02 23:41:23>
+# Time-stamp: <subi 2012/04/02 23:57:47>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -148,20 +148,25 @@ class VideoExpander(object):
         """
         display_aspect = DimensionChecker().dim[2]
         
-        # -subfont-autoscale affects the osd and the plain old subtitle renderer
-        # make the osd be of fixed size when in fullscreen, independent on video size
+        # -subfont-autoscale affects both the osd, the plain old subtitle
+        # renderer and the ass subtitle renderer
+        args = "-subfont-autoscale 2".split()
+        
+        # make the osd be of fixed size when in fullscreen, independent on video
+        # size
         subfont_osd_scale = 3
-        args = "-subfont-autoscale 2 -subfont-osd-scale {0}".format(subfont_osd_scale).split()
+        args.extend("-subfont-osd-scale {0}".format(subfont_osd_scale).split())
 
         if media.scaled_dimension[2] < Fraction(4,3):
             # assume video never narrow than 4:3
             args.extend("-vf-pre dsize=4/3".split())
         elif self.__use_ass:
-            # feel free to change the scale for your favor.
-            ass_font_scale = 2
+            # match the subfont_text_scale
+            ass_font_scale = subfont_osd_scale / 2.0
             args.extend("-ass -ass-font-scale {0}".format(ass_font_scale).split());
 
-            subtitle_height_in_video = int(18*1.25/288 * ass_font_scale * media.scaled_dimension[1])
+            # 1.25 lines of subtitles
+            subtitle_height_in_video = int(18*1.25 * ass_font_scale * media.scaled_dimension[1]/288)
             target_aspect = Fraction(media.scaled_dimension[0], media.scaled_dimension[1]+subtitle_height_in_video*2)
             if target_aspect < display_aspect:
                 target_aspect = display_aspect
@@ -170,7 +175,9 @@ class VideoExpander(object):
             m2t = media.scaled_dimension[2] / target_aspect
             if m2t > 1:
                 margin = (m2t - 1) * media.scaled_dimension[1] / 2
+                # add margin
                 args.extend("-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin)).split())
+                # fix stretched sutitles
                 args.extend("-ass-force-style ScaleX={0}".format(1/float(m2t)).split())
         else:
             # -vf expand does its own non-square pixel adjustment;

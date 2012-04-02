@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/02 00:26:30>
+# Time-stamp: <subi 2012/04/02 23:41:23>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -56,7 +56,8 @@ def which(cmd):
     else:
         for path in os.environ["PATH"].split(os.pathsep):
             fullpath = exefy(os.path.join(path,cmd))
-            if fullpath: return fullpath
+            if fullpath:
+                return fullpath
     return None
 
 class DimensionChecker(object):
@@ -65,16 +66,16 @@ class DimensionChecker(object):
         """
         dim = [640, 480]
         if which("xrandr"):
-            p = subprocess.Popen(["xrandr"], stdout = subprocess.PIPE)
-            for line in p.communicate()[0].splitlines():
-                if line.startswith("*"):
+            for l in subprocess.check_output(["xrandr"]).splitlines():
+                if l.startswith("*"):
                     # xrandr 1.1
-                    dim[0] = int(line.split()[1])
-                    dim[1] = int(line.split()[3])
+                    dim[0] = int(l.split()[1])
+                    dim[1] = int(l.split()[3])
                     break
-                elif '*' in line:
-                    d = line.split()[0].split('x')
-                    if d[0] > dim[0]: dim = map(int,d)
+                elif '*' in l:
+                    d = l.split()[0].split('x')
+                    if d[0] > dim[0]:
+                        dim = map(int,d)
 
         self.dim = dim + [Fraction(dim[0],dim[1])]
 
@@ -146,10 +147,11 @@ class VideoExpander(object):
         Return the arguments list for mplayer.
         """
         display_aspect = DimensionChecker().dim[2]
-        subfont_pt = 18 * (DimensionChecker().dim[1] / 768)
         
         # -subfont-autoscale affects the osd and the plain old subtitle renderer
-        args = "-subfont-autoscale 0 -subfont-osd-scale {0}".format(subfont_pt).split()
+        # make the osd be of fixed size when in fullscreen, independent on video size
+        subfont_osd_scale = 3
+        args = "-subfont-autoscale 2 -subfont-osd-scale {0}".format(subfont_osd_scale).split()
 
         if media.scaled_dimension[2] < Fraction(4,3):
             # assume video never narrow than 4:3
@@ -173,8 +175,11 @@ class VideoExpander(object):
         else:
             # -vf expand does its own non-square pixel adjustment;
             # m.original_dimension is fine
+
+            # make the osd be of fixed size when in fullscreen, independent on video size
+            subfont_text_scale = subfont_osd_scale * 1.5
             args.extend("-subpos 98 -subfont-text-scale {0} -vf-pre expand={1}::::1:{2}"
-                        .format(subfont_pt*1.5, media.original_dimension[0], display_aspect).split())
+                        .format(subfont_text_scale, media.original_dimension[0], display_aspect).split())
         return args
         
     def __init__(self):
@@ -482,7 +487,6 @@ class CmdLineParser:
                 self.files.extend(args_to_parse)
                 args_to_parse = []
             elif s.startswith("-"):
-#                flag = MPlayerContext().support(s.split('-',1)[1])
                 flag = MPlayerContext().support(s.partition('-')[2])
                 if flag == 0:
                     self.bad_args.append(s)
@@ -767,7 +771,7 @@ if __name__ == "__main__":
     dry_run = False
     logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
-    if sys.hexversion < 0x02060000:
-        logging.info("Please run the script with python>=2.6.0")
+    if sys.hexversion < 0x02070000:
+        logging.info("Please run the script with python>=2.7.0")
     else:
         run()

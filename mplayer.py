@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/02 23:57:47>
+# Time-stamp: <subi 2012/04/03 23:06:28>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -157,7 +157,7 @@ class VideoExpander(object):
         subfont_osd_scale = 3
         args.extend("-subfont-osd-scale {0}".format(subfont_osd_scale).split())
 
-        if media.scaled_dimension[2] < Fraction(4,3):
+        if media.justified_dimension[2] < Fraction(4,3):
             # assume video never narrow than 4:3
             args.extend("-vf-pre dsize=4/3".split())
         elif self.__use_ass:
@@ -166,15 +166,15 @@ class VideoExpander(object):
             args.extend("-ass -ass-font-scale {0}".format(ass_font_scale).split());
 
             # 1.25 lines of subtitles
-            subtitle_height_in_video = int(18*1.25 * ass_font_scale * media.scaled_dimension[1]/288)
-            target_aspect = Fraction(media.scaled_dimension[0], media.scaled_dimension[1]+subtitle_height_in_video*2)
+            subtitle_height_in_video = int(18*1.25 * ass_font_scale * media.justified_dimension[1]/288)
+            target_aspect = Fraction(media.justified_dimension[0], media.justified_dimension[1]+subtitle_height_in_video*2)
             if target_aspect < display_aspect:
                 target_aspect = display_aspect
 
             # expand_video_y:video_Y = (video_X/video_Y):(video_X/expanded_video_Y)
-            m2t = media.scaled_dimension[2] / target_aspect
+            m2t = media.justified_dimension[2] / target_aspect
             if m2t > 1:
-                margin = (m2t - 1) * media.scaled_dimension[1] / 2
+                margin = (m2t - 1) * media.justified_dimension[1] / 2
                 # add margin
                 args.extend("-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin)).split())
                 # fix stretched sutitles
@@ -186,7 +186,7 @@ class VideoExpander(object):
             # make the osd be of fixed size when in fullscreen, independent on video size
             subfont_text_scale = subfont_osd_scale * 1.5
             args.extend("-subpos 98 -subfont-text-scale {0} -vf-pre expand={1}::::1:{2}"
-                        .format(subfont_text_scale, media.original_dimension[0], display_aspect).split())
+                        .format(subfont_text_scale, media.dimension[0], display_aspect).split())
         return args
         
     def __init__(self):
@@ -597,17 +597,10 @@ class MPlayerInstance(object):
                 f.write(l)
                 f.flush()
 
-        args = [MPlayerContext().path]
-        if media:
-            args += media.args + [media.filename]
-        args += CmdLineParser().args
-            
-        logging.debug("Final command:\n{0}".format(' '.join(args)))
-
         if dry_run:
             return
 
-        self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
+        self.__process = subprocess.Popen(media.args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
         tee()
 
         logging.debug("Last timestamp: {0}".format(self.last_timestamp))
@@ -623,14 +616,14 @@ class MediaContext:
 
     filename = ""
     fullpath = ""
+
+    args = []
     
     seekable = True
     is_video = False
 
-    args = []
-    
-    original_dimension = [0,0,Fraction(0)]
-    scaled_dimension = [0,0,Fraction(0)]
+    dimension = [0,0,Fraction(0)]
+    justified_dimension = [0,0,Fraction(0)]
 
     subtitle_had = "none"
 
@@ -643,6 +636,8 @@ class MediaContext:
         """Parse the output by midentify.
         """
         self.filename = path
+        self.args = [MPlayerContext().path] + "-subcp utf8".split() + "-input file={0}".format(Fifo().path).split()
+
         self.__proc_fetcher = None
 
         info = {}
@@ -660,11 +655,14 @@ class MediaContext:
             self.__gen_video_info(info)
             self.__gen_subtitle_info(info)
 
-            self.args = VideoExpander().expand(self) + "-input file={0}".format(Fifo().path).split()
+            self.args += VideoExpander().expand(self)
             if not dry_run and not self.subtitle_had.endswith("text"):
                 self.__proc_fetcher = multiprocessing.Process(target=handle_shooter_subtitles, args=(self, IPCPipe().writer))
                 self.__proc_fetcher.start()
-            
+
+        self.args += CmdLineParser().args
+        self.args += [self.filename]
+        
         self.__log()
 
     def __log(self):
@@ -677,9 +675,12 @@ class MediaContext:
             items.append("    Dim(pixel):     {0} @ {1}\n"
                          "    Dim(display):   {2} @ {3}\n"
                          "    Subtitles:      {4}\n".format(
-                    "{0[0]}x{0[1]}".format(self.original_dimension), self.original_dimension[2],
-                    "{0[0]}x{0[1]}".format(self.scaled_dimension), self.scaled_dimension[2],
+                    "{0[0]}x{0[1]}".format(self.dimension), self.dimension[2],
+                    "{0[0]}x{0[1]}".format(self.justified_dimension), self.justified_dimension[2],
                     self.subtitle_had))
+            
+        items.append("{0}".format(" ".join(self.args)))
+        
         logging.debug(''.join(items))
 
     def __gen_meta_info(self,info):
@@ -691,20 +692,20 @@ class MediaContext:
         self.is_video = True if "ID_VIDEO_ID" in info else False
         
     def __gen_video_info(self,info):
-        self.original_dimension[0] = int(info["ID_VIDEO_WIDTH"])
-        self.original_dimension[1] = int(info["ID_VIDEO_HEIGHT"])
+        self.dimension[0] = int(info["ID_VIDEO_WIDTH"])
+        self.dimension[1] = int(info["ID_VIDEO_HEIGHT"])
         if "ID_VIDEO_ASPECT" in info:
-            self.original_dimension[2] = Fraction(info["ID_VIDEO_ASPECT"]).limit_denominator(10)
-        self.scaled_dimension = self.original_dimension[:]
+            self.dimension[2] = Fraction(info["ID_VIDEO_ASPECT"]).limit_denominator(10)
+        self.justified_dimension = self.dimension[:]
 
         # amend the dim params
-        if self.scaled_dimension[2] == 0:
-            self.scaled_dimension[2] =  Fraction(self.scaled_dimension[0],self.scaled_dimension[1])
+        if self.justified_dimension[2] == 0:
+            self.justified_dimension[2] =  Fraction(self.justified_dimension[0],self.justified_dimension[1])
 
         # fix video width for non-square pixel, i.e. w/h != aspect
         # or the video expanding will not work
-        if abs(Fraction(self.scaled_dimension[0],self.scaled_dimension[1]) - self.scaled_dimension[2]) > 0.1:
-            self.scaled_dimension[0] = int(round(self.scaled_dimension[1] * self.scaled_dimension[2]))
+        if abs(Fraction(self.justified_dimension[0],self.justified_dimension[1]) - self.justified_dimension[2]) > 0.1:
+            self.justified_dimension[0] = int(round(self.justified_dimension[1] * self.justified_dimension[2]))
 
     def __gen_subtitle_info(self,info):
         if "ID_SUBTITLE_ID" in info:

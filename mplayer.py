@@ -2,31 +2,30 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/03 23:39:49>
+# Time-stamp: <subi 2012/04/04 14:19:33>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
 # (don't overwrite the real MPlayer); you would not even notice its existence.
 
 # TODO:
-# 1. data persistance (aka data cache) for
+# * data persistance for
 #    i)   resume last played position
 #    ii)  remember last settings (volume/hue/contrast etc.)
 #    iii) dedicated dir for subtitles
 #    iv)  MPlayerContext
-# 2. remember last volume/hue/contrast for continuous playing (don't need data
-#    persistance)
-# 3. shooter sometimes return a false subtitle with the same time length. find a
-#    cure. (using zenity, pygtk, or both?)
-# 4. filehash should be in Media
-# 5. xset s off
-# 6. retry on failure of fetching
-# 7. proper subcp handling
-# 8. give some visual feedback when failing to fetch subtitles
-# 9: "not compiled in option"
-# 10: IPCPipe need reconsidering
-# 11: also convert on-disk subtitles to utf8
-# 12: more tests on font scale consistency (differet monitors, videos, ass/noass)
+# * remember last volume/hue/contrast for continuous playing (don't need data
+#   persistance)
+# * shooter sometimes return a false subtitle with the same time length. find a
+#   cure. (using zenity, pygtk, or both?)
+# * filehash should be in Media
+# * xset s off
+# * retry on failure of fetching
+# * give some visual feedback when failing to fetch subtitles
+# * "not compiled in option"
+# * IPCPipe need reconsidering
+# * detect the language in embedded subtitles, which is guaranteed to be utf8
+# * use ffprobe for better(?) metainfo detection?
 
 import logging
 import os, sys, time
@@ -148,8 +147,8 @@ class VideoExpander(object):
         """
         display_aspect = DimensionChecker().dim[2]
         
-        # -subfont-autoscale affects both the osd, the plain old subtitle
-        # renderer and the ass subtitle renderer
+        # -subfont-autoscale affects the osd, the plain old subtitle renderer
+        # AND the ass subtitle renderer
         args = "-subfont-autoscale 2".split()
         
         # make the osd be of fixed size when in fullscreen, independent on video
@@ -157,42 +156,33 @@ class VideoExpander(object):
         subfont_osd_scale = 3
         args.extend("-subfont-osd-scale {0}".format(subfont_osd_scale).split())
 
-        if media.dimension[2] < Fraction(4,3):
+        if media.disp_dim[2] < Fraction(4,3):
             # assume video never narrow than 4:3
             args.extend("-vf-pre dsize=4/3".split())
         elif self.__use_ass:
-            # fix video width for non-square pixel, i.e. w/h != aspect
-            # or the band height and the font scale is not correct
-            dim = media.dimension[:]
-            if abs(Fraction(dim[0],dim[1]) - dim[2]) > 0.1:
-                dim[0] = int(round(dim[1] * dim[2]))
-
             # match the subfont_text_scale
             ass_font_scale = subfont_osd_scale / 2.0
             args.extend("-ass -ass-font-scale {0}".format(ass_font_scale).split());
 
             # 1.25 lines of subtitles
-            band_height_in_video = int(18*1.25 * ass_font_scale * dim[1]/288)
-            target_aspect = Fraction(dim[0], dim[1]+band_height_in_video*2)
+            band_height_in_video = int(18*1.25 * ass_font_scale * media.disp_dim[1]/288)
+            target_aspect = Fraction(media.disp_dim[0], media.disp_dim[1]+band_height_in_video*2)
             if target_aspect < display_aspect:
                 target_aspect = display_aspect
 
             # expand_video_y:video_Y = (video_X/video_Y):(video_X/expanded_video_Y)
-            m2t = dim[2] / target_aspect
+            m2t = media.disp_dim[2] / target_aspect
             if m2t > 1:
-                margin = (m2t - 1) * dim[1] / 2
+                margin = (m2t - 1) * media.disp_dim[1] / 2
                 # add margin
                 args.extend("-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(int(margin)).split())
                 # fix stretched sutitles
                 args.extend("-ass-force-style ScaleX={0}".format(1/float(m2t)).split())
         else:
-            # -vf expand does its own non-square pixel adjustment;
-            # m.original_dimension is fine
-
-            # make the osd be of fixed size when in fullscreen, independent on video size
+            # -vf expand does its own non-square pixel adjustment; use media.pix_dim
             subfont_text_scale = subfont_osd_scale * 1.5
             args.extend("-subpos 98 -subfont-text-scale {0} -vf-pre expand={1}::::1:{2}"
-                        .format(subfont_text_scale, media.dimension[0], display_aspect).split())
+                        .format(subfont_text_scale, media.pix_dim[0], display_aspect).split())
         return args
         
     def __init__(self):
@@ -213,7 +203,7 @@ class VideoExpander(object):
                 if not "libfontconfig" in p.communicate()[0]:
                     self.__use_ass = False
 
-def convert2utf8(s):
+def convert2utf8(obj, is_path=False):
     def guess_enc(s):
         # http://www.w3.org/International/questions/qa-forms-utf-8
         # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
@@ -263,12 +253,23 @@ def convert2utf8(s):
             return "gbk"
         else:
             return "big5"
-                           
+
+    if is_path:
+        s = open(obj,"rb").read()
+    else:
+        s = obj
+        
     enc = guess_enc(s)
     if enc in ["utf8","unknown"]:
-        return s
+        if not is_path:
+            return s
     else:
-        return s.decode(enc,'ignore').encode("utf8")
+        if is_path:
+            f = open(obj,"wb")
+            f.write(s)
+            f.close()
+        else:
+            return s.decode(enc,'ignore').encode("utf8")
 
 def handle_shooter_subtitles(media, cmd_conn_write_end):
     def build_req(m):
@@ -388,7 +389,6 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
 
     # save subtitles and generate mplayer fifo commands
     cmds = []
-    enca = which("enca")
     for sub in subs:
         path = prefix + sub[0]
         logging.info("Saving subtitle as {0}".format(path))
@@ -628,9 +628,8 @@ class MediaContext:
     seekable = True
     is_video = False
 
-    dimension = [0,0,Fraction(0)]
-
-    subtitle_had = "none"
+    subtitle_type = []
+    subtitles = []
 
     def destory(self):
         if self.__proc_fetcher and self.__proc_fetcher.is_alive():
@@ -641,14 +640,22 @@ class MediaContext:
         """Parse the output by midentify.
         """
         self.filename = path
-        self.args = [MPlayerContext().path] + "-subcp utf8".split() + "-input file={0}".format(Fifo().path).split()
+        self.args = [MPlayerContext().path] + "-subcp utf8".split() + Fifo().args
 
         self.__proc_fetcher = None
+        self.__subtitle_keys = ["ID_SUBTITLE_ID",       "ID_FILE_SUB_ID",       "ID_VOBSUB_ID",
+                                "ID_SUBTITLE_FILENAME", "ID_FILE_SUB_FILENAME", "ID_VOBSUB_FILENAME"]
 
         info = {}
         for l in MPlayerInstance().identify([path]):
             a = l.partition("=")
-            info[a[0]] = a[2]
+            if a[0] in self.__subtitle_keys:
+                if not a[0] in info:
+                    info[a[0]] = []
+
+                info[a[0]].append(a[2])
+            else:
+                info[a[0]] = a[2]
 
         if not "ID_FILENAME" in info:
             self.exist = False;
@@ -660,26 +667,28 @@ class MediaContext:
             self.__gen_video_info(info)
             self.__gen_subtitle_info(info)
 
-            self.args += VideoExpander().expand(self)
-            if not dry_run and not self.subtitle_had.endswith("text"):
+            self.args.extend(VideoExpander().expand(self))
+            if not dry_run and "text" in self.subtitle_type:
                 self.__proc_fetcher = multiprocessing.Process(target=handle_shooter_subtitles, args=(self, IPCPipe().writer))
                 self.__proc_fetcher.start()
 
-        self.args += CmdLineParser().args
-        self.args += [self.filename]
-        
+        self.args.extend(CmdLineParser().args)
+        self.args.append(self.filename)
+
         self.__log()
 
     def __log(self):
-        items = ["{0}\n"
-                 "  Fullpath:         {1}\n"
-                 "  Seekable:         {2}\n"
-                 "  Video:            {3}\n".format(self.filename, self.fullpath, self.seekable, self.is_video)]
+        items = ["\n"
+                 "  Fullpath:         {0}\n"
+                 "  Seekable:         {1}\n"
+                 "  Video:            {2}\n".format(self.fullpath, self.seekable, self.is_video)]
         
         if self.is_video:
             items.append("    Dim(pixel):     {0} @ {1}\n"
-                         "    Subtitles:      {2}\n".format(
-                    "{0[0]}x{0[1]}".format(self.dimension), self.dimension[2], self.subtitle_had))
+                         "    Dim(disp):      {2} @ {3}\n"
+                         "    Subtitles:      {4}\n".format("{0[0]}x{0[1]}".format(self.pix_dim), self.pix_dim[2],
+                                                            "{0[0]}x{0[1]}".format(self.disp_dim), self.disp_dim[2],
+                                                            "\n                    ".join(self.subtitles)))
             
         items.append("{0}".format(" ".join(self.args)))
         
@@ -694,20 +703,31 @@ class MediaContext:
         self.is_video = True if "ID_VIDEO_ID" in info else False
         
     def __gen_video_info(self,info):
-        self.dimension[0] = int(info["ID_VIDEO_WIDTH"])
-        self.dimension[1] = int(info["ID_VIDEO_HEIGHT"])
+        self.pix_dim = [int(info["ID_VIDEO_WIDTH"]), int(info["ID_VIDEO_HEIGHT"]), 0]
         if "ID_VIDEO_ASPECT" in info:
-            self.dimension[2] = Fraction(info["ID_VIDEO_ASPECT"]).limit_denominator(10)
+            self.pix_dim[2] = Fraction(info["ID_VIDEO_ASPECT"]).limit_denominator(10)
         else:
-            self.dimension[2] = Fraction(self.dimension[0],self.dimension[1])
+            self.pix_dim[2] = Fraction(self.pix_dim[0],self.pix_dim[1])
+        # non-square pixel, i.e. w:h != aspect
+        # used for correct calculation in video expanding
+        self.disp_dim = self.pix_dim[:]
+        if abs(Fraction(self.pix_dim[0],self.pix_dim[1]) - self.pix_dim[2]) > 0.1:
+            self.disp_dim[0] = int(round(self.disp_dim[1] * self.disp_dim[2]))
             
     def __gen_subtitle_info(self,info):
         if "ID_SUBTITLE_ID" in info:
-            self.subtitle_had = "embedded text"
+            self.subtitle_type.append("embedded text")
+            self.subtitles.extend(info["ID_SUBTITLE_FILENAME"])
         if "ID_FILE_SUB_ID" in info:
-            self.subtitle_had = "external text"
+            self.subtitle_type.append("external text")
+            self.subtitles.extend(info["ID_FILE_SUB_FILENAME"])
+            if not dry_run:
+                logging.debug("Trying coverting subtitles to UTF-8...")
+                for p in info["ID_FILE_SUB_FILENAME"]:
+                    convert2utf8(p,True)
         if "ID_VOBSUB_ID" in info:
-            self.subtitle_had = "external vobsub"
+            self.subtitle_type.append("external vobsub")
+            self.subtitles.extend(info["ID_VOBSUB_FILENAME"])
 
 @singleton
 class IPCPipe(object):
@@ -715,7 +735,8 @@ class IPCPipe(object):
         self.writer.send(cmd)
     
     def terminate(self):
-        self.__proc_listener.terminate()
+        if not dry_run:
+            self.__proc_listener.terminate()
 
     def __init__(self):
         def listen(fifo_path):
@@ -736,10 +757,11 @@ class IPCPipe(object):
                 else:
                     time.sleep(2)
 
-        self.reader, self.writer = multiprocessing.Pipe(False)
+        if not dry_run:
+            self.reader, self.writer = multiprocessing.Pipe(False)
 
-        self.__proc_listener = multiprocessing.Process(target=listen, args=(Fifo().path,))
-        self.__proc_listener.start()
+            self.__proc_listener = multiprocessing.Process(target=listen, args=(Fifo().path,))
+            self.__proc_listener.start()
 
 @singleton
 class Fifo:
@@ -748,6 +770,7 @@ class Fifo:
         self.__tmpdir = tempfile.mkdtemp()
         self.path = os.path.join(self.__tmpdir, "mplayer_fifo")
         os.mkfifo(self.path)
+        self.args = "-input file={0}".format(self.path).split()            
     def __del__(self):
         os.unlink(self.path)
         os.rmdir(self.__tmpdir)

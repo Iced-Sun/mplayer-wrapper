@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/04 14:19:33>
+# Time-stamp: <subi 2012/04/05 14:04:06>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -18,10 +18,7 @@
 #   persistance)
 # * shooter sometimes return a false subtitle with the same time length. find a
 #   cure. (using zenity, pygtk, or both?)
-# * filehash should be in Media
 # * xset s off
-# * retry on failure of fetching
-# * give some visual feedback when failing to fetch subtitles
 # * "not compiled in option"
 # * IPCPipe need reconsidering
 # * detect the language in embedded subtitles, which is guaranteed to be utf8
@@ -32,6 +29,7 @@ import os, sys, time
 import struct, urllib2
 import locale,re
 import multiprocessing, subprocess
+import hashlib
 from fractions import Fraction
 
 # http://www.python.org/dev/peps/pep-0318/
@@ -91,7 +89,7 @@ class VideoExpander(object):
        everything done by YOU, including the calculation of the margin heights and
        the font scales. The benefit is you can use "-ass".
         
-    The "ass-use-margin" method has a very annoying problem: the subtitle charecters
+    The "ass-use-margin" method has a very annoying problem: the subtitle characters
     are horizontally stretched. We need a fix.
         
     A wild guess for what is done in the ass renderer of mplayer/libass is taken
@@ -203,95 +201,184 @@ class VideoExpander(object):
                 if not "libfontconfig" in p.communicate()[0]:
                     self.__use_ass = False
 
-def convert2utf8(obj, is_path=False):
-    def guess_enc(s):
+@singleton
+class UTF8Converter(object):
+    ascii = ["[\x09\x0A\x0D\x20-\x7E]"]
+
+    gbk = []
+    gbk.append("[\xA1-\xA9][\xA1-\xFE]")              # Level GBK/1
+    gbk.append("[\xB0-\xF7][\xA1-\xFE]")              # Level GBK/2
+    gbk.append("[\x81-\xA0][\x40-\x7E\x80-\xFE]")     # Level GBK/3
+    gbk.append("[\xAA-\xFE][\x40-\x7E\x80-\xA0]")     # Level GBK/4
+    gbk.append("[\xA8-\xA9][\x40-\x7E\x80-\xA0]")     # Level GBK/5
+
+    big5 = []
+    big5.append("[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]")    # Special symbols
+    big5.append("\xA3[\xC0-\xFE]")                                             # Reserved, not for user-defined characters
+    big5.append("[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]")             # Frequently used characters
+    big5.append("\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]")              # Reserved for user-defined characters
+    big5.append("[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]")    # Less frequently used characters
+    big5.append("\xF9[\xD6-\xFE]|[\xFA-\xFE][\x40-\x7E\xA1-\xFE]")             # Reserved for user-defined characters
+
+    utf8 = []
+    utf8.append("[\x09\x0A\x0D\x20-\x7E]")            # ASCII
+    utf8.append("[\xC2-\xDF][\x80-\xBF]")             # non-overlong 2-byte
+    utf8.append("\xE0[\xA0-\xBF][\x80-\xBF]")         # excluding overlongs
+    utf8.append("[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}")  # straight 3-byte
+    utf8.append("\xED[\x80-\x9F][\x80-\xBF]")         # excluding surrogates
+    utf8.append("\xF0[\x90-\xBF][\x80-\xBF]{2}")      # planes 1-3
+    utf8.append("[\xF1-\xF3][\x80-\xBF]{3}")          # planes 4-15
+    utf8.append("\xF4[\x80-\x8F][\x80-\xBF]{2}")      # plane 16
+
+    def guess_enc(self, s):
         # http://www.w3.org/International/questions/qa-forms-utf-8
-        # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
-        ascii = ["[\x09\x0A\x0D\x20-\x7E]"]
-
-        gbk = []
-        gbk.append("[\xA1-\xA9][\xA1-\xFE]")              # Level GBK/1
-        gbk.append("[\xB0-\xF7][\xA1-\xFE]")              # Level GBK/2
-        gbk.append("[\x81-\xA0][\x40-\x7E\x80-\xFE]")     # Level GBK/3
-        gbk.append("[\xAA-\xFE][\x40-\x7E\x80-\xA0]")     # Level GBK/4
-        gbk.append("[\xA8-\xA9][\x40-\x7E\x80-\xA0]")     # Level GBK/5
-
-        big5 = []
-        big5.append("[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]")    # Special symbols
-        big5.append("\xA3[\xC0-\xFE]")                                             # Reserved, not for user-defined characters
-        big5.append("[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]")             # Frequently used characters
-        big5.append("\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]")              # Reserved for user-defined characters
-        big5.append("[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]")    # Less frequently used characters
-        big5.append("\xF9[\xD6-\xFE]|[\xFA-\xFE][\x40-\x7E\xA1-\xFE]")             # Reserved for user-defined characters
-
-        utf8 = []
-        utf8.append("[\x09\x0A\x0D\x20-\x7E]")            # ASCII
-        utf8.append("[\xC2-\xDF][\x80-\xBF]")             # non-overlong 2-byte
-        utf8.append("\xE0[\xA0-\xBF][\x80-\xBF]")         # excluding overlongs
-        utf8.append("[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}")  # straight 3-byte
-        utf8.append("\xED[\x80-\x9F][\x80-\xBF]")         # excluding surrogates
-        utf8.append("\xF0[\x90-\xBF][\x80-\xBF]{2}")      # planes 1-3
-        utf8.append("[\xF1-\xF3][\x80-\xBF]{3}")          # planes 4-15
-        utf8.append("\xF4[\x80-\x8F][\x80-\xBF]{2}")      # plane 16
-        
-        if len("".join(re.split("(?:"+"|".join(utf8)+")+",s))) < 20:
+        if len("".join(re.split("(?:"+"|".join(self.utf8)+")+",s))) < 20:
             return "utf8"
-        elif len("".join(re.split("(?:"+"|".join(ascii+gbk)+")+",s))) < 20:
+        elif len("".join(re.split("(?:"+"|".join(self.ascii+self.gbk)+")+",s))) < 20:
             return "gbk"
-        elif len("".join(re.split("(?:"+"|".join(ascii+big5)+")+",s))) < 20:
+        elif len("".join(re.split("(?:"+"|".join(self.ascii+self.big5)+")+",s))) < 20:
             return "big5"
         else:
             return "unknown"
-
-        ## another method to test gb2312 or big5
+    def guess_enc1(self, s):
+        if len("".join(re.split("(?:"+"|".join(self.utf8)+")+",s))) < 20:
+            return "utf8"
+        # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
         l = len(re.findall("[\xA1-\xFE][\x40-\x7E]",s))
         h = len(re.findall("[\xA1-\xFE][\xA1-\xFE]",s))
-
         if l == 0:
             return "gb2312"
         elif float(l)/float(h) < 1.0/4.0:
             return "gbk"
         else:
             return "big5"
-
-    if is_path:
-        s = open(obj,"rb").read()
-    else:
-        s = obj
-        
-    enc = guess_enc(s)
-    if enc in ["utf8","unknown"]:
-        if not is_path:
-            return s
-    else:
+    def convert(self, s, is_path=False):
         if is_path:
-            f = open(obj,"wb")
-            f.write(s)
-            f.close()
+            with open(s,"rb") as f:
+                ss = f.read()
         else:
-            return s.decode(enc,'ignore').encode("utf8")
+            ss = s
 
-def handle_shooter_subtitles(media, cmd_conn_write_end):
-    def build_req(m):
-        def hashing(path):
-            sz = os.path.getsize(path)
-            if sz>8192:
-                import hashlib
-                f = open(path, 'rb')
-                filehash = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
-                f.close()
+        enc = self.guess_enc(ss)
+        if enc in ["utf8","unknown"]:
+            if not is_path:
+                return ss
+        else:
+            ss = ss.decode(enc,'ignore').encode("utf8")
+            if is_path:
+                with open(obj,"wb") as f:
+                    f.write(ss)
             else:
-                filehash = ""
-            return filehash
+                return ss
 
+class SubFetcher(object):
+    subtitles = []
+    
+    __req = None
+
+    __schemas = []
+    __servers = []
+
+    __try_times = [0, 5, 10, 30, 120]
+    __need_retry = False
+
+    def fetch(self, media):
+        # wait for mplayer to settle up
+        time.sleep(3)
+
+        IPCPipe().send("osd_show_text \"正在查询字幕...\" 5000")
+        for i, t in enumerate(self.__try_times):
+            try:
+                logging.debug("Wait for {0}s to connect to shooter server ({1})...".format(t,i))
+                time.sleep(t)
+
+                self.__build_req(media)
+                response = urllib2.urlopen(self.__req)
+                self.__parse_response(response)
+
+                if not self.__need_retry:
+                    break
+            except urllib2.URLError:
+                pass
+
+        if self.subtitles:
+            prefix = os.path.splitext(media.fullpath)[0]
+
+            # save subtitles and generate mplayer fifo commands
+            for s in self.subtitles:
+                path = prefix + s['suffix'] + "." + s['extension']
+                logging.info("Saving subtitle as {0}".format(path))
+                with open(path,"wb") as f:
+                    f.write(UTF8Converter().convert(s['content']))
+                IPCPipe().send("sub_load \"{0}\"".format(path))
+                if not s['delay'] == 0:
+                    IPCPipe().send("sub_delay \"{0}\"".format(s['delay']))
+            IPCPipe().send("sub_file 0")
+        else:
+            logging.info("Failed to fetch subtitles.")
+            IPCPipe().send("osd_show_text \"查询字幕失败.\" 3000")
+            
+
+    def __init__(self):
         import httplib
-        schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]
-        servers = ["www", "splayer"] + ["splayer"+str(i) for i in range(1,13)]
+        self.__schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]
+        self.__servers = ["www", "splayer"] + ["splayer"+str(i) for i in range(1,13)]
 
+    def __parse_response(self, response):
+        c = response.read(1)
+        package_count = struct.unpack("!b", c)[0]
+
+        logging.info("{0} subtitle packages found".format(package_count))
+
+        for i in range(package_count):
+            c = response.read(8)
+            package_length, desc_length = struct.unpack("!II", c)
+            description = response.read(desc_length).decode("UTF-8")
+            if not description:
+                description = "no description"
+            if 'delay' in description:
+                sub_delay = float(description.partition("=")[2]) / 1000
+            else:
+                sub_delay = 0
+
+            logging.info("Length of current package in bytes: {0}".format(package_length))
+
+            c = response.read(5)
+            package_length, file_count = struct.unpack("!IB", c)
+            
+            logging.info("{0} subtitles in current package ({1})".format(file_count,description))
+
+            for j in range(file_count):
+                c = response.read(8)
+                pack_len, ext_len = struct.unpack("!II", c)
+                ext = response.read(ext_len)
+
+                c = response.read(4)
+                file_len = struct.unpack("!I", c)[0]
+                sub = response.read(file_len)
+
+                if sub.startswith("\x1f\x8b"):
+                    import gzip
+                    from cStringIO import StringIO
+                    self.subtitles.append({'suffix': "",
+                                           'extension': ext,
+                                           'delay': sub_delay,
+                                           'content': gzip.GzipFile(fileobj=StringIO(sub)).read()})
+                else:
+                    logging.warning("Unknown format or incomplete data. Try again later...")
+                    self.__need_retry = True
+
+        logging.info("{0} subtitle(s) fetched.".format(len(self.subtitles)))
+
+        for i,s in enumerate(self.subtitles):
+            s['suffix'] = (str(i) if i>0 else "")
+
+    def __build_req(self, media):
         import random
         boundary = "-"*28 + "{0:x}".format(random.getrandbits(48))
 
-        url = "{0}://{1}.shooter.cn/api/subapi.php".format(random.choice(schemas), random.choice(servers))
+        url = "{0}://{1}.shooter.cn/api/subapi.php".format(random.choice(self.__schemas),
+                                                           random.choice(self.__servers))
 
         header = []
         header.append(["User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543))])
@@ -299,10 +386,10 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
 
         items = []
         items.append(["pathinfo", os.path.join("c:/",
-                                               os.path.basename(os.path.dirname(m.fullpath)),
-                                               os.path.basename(m.fullpath))])
-        items.append(["filehash", hashing(m.fullpath)])
-#        data.append(["lang", "chn"])
+                                               os.path.basename(os.path.dirname(media.fullpath)),
+                                               os.path.basename(media.fullpath))])
+        items.append(["filehash", media.hash_str])
+        items.append(["lang", "chn"])
 
         data = ''.join(["--{0}\n"
                         "Content-Disposition: form-data; name=\"{1}\"\n\n"
@@ -313,99 +400,11 @@ def handle_shooter_subtitles(media, cmd_conn_write_end):
                       "{1}\n"
                       "{2}\n".format(url,header,data))
 
-        req = urllib2.Request(url)
+        self.__req = urllib2.Request(url)
         for h in header:
-            req.add_header(h[0],h[1])
-        req.add_data(data)
-
-        return req
-
-    def fetch_sub(req):
-        def parse_package(response):
-            c = response.read(8)
-            package_length, desc_length = struct.unpack("!II", c)
-            description = response.read(desc_length).decode("UTF-8")
-            if not description: description = "no description"
-
-            logging.info("Length of current package in bytes: {0}".format(package_length))
-
-            c = response.read(5)
-            package_length, file_count = struct.unpack("!IB", c)
-
-            logging.info("{0} subtitles in current package ({1})".format(file_count,description))
-
-            subs_in_pack = []
-            for j in range(file_count):
-                sub = parse_file(response)
-                if sub: subs_in_pack.append(sub)
-            return subs_in_pack
-
-        def parse_file(response):
-            c = response.read(8)
-            pack_len, ext_len = struct.unpack("!II", c)
-            ext = response.read(ext_len)
-
-            c = response.read(4)
-            file_len = struct.unpack("!I", c)[0]
-            sub = response.read(file_len)
-
-            if sub.startswith("\x1f\x8b"):
-                import gzip
-                from cStringIO import StringIO
-                return [ext, gzip.GzipFile(fileobj=StringIO(sub)).read()]
-            else:
-                logging.warning("Unknown format or incomplete data. Trying again...")
-                return None
-
-        ### function body
-        response = urllib2.urlopen(req)
-
-        c = response.read(1)
-        package_count = struct.unpack("!b", c)[0]
-
-        logging.info("{0} subtitle packages found".format(package_count))
-
-        subs = []
-        for i in range(package_count):
-            subs.extend(parse_package(response))
-        logging.info("{0} subtitle(s) fetched.".format(len(subs)))
-
-        # todo: enumerate?
-        for i in range(len(subs)):
-            suffix = str(i) if i>0 else ""
-            subs[i][0] = suffix + '.' + subs[i][0]
-
-        return subs
-
-    ### function body
-    # wait for mplayer to settle up
-    time.sleep(3)
-
-    IPCPipe().send(["osd_show_text \"正在查询字幕...\" 5000"])
-    logging.info("Connecting to shooter server...")
-    subs = fetch_sub(build_req(media))
-
-    prefix = os.path.splitext(media.fullpath)[0]
-
-    # save subtitles and generate mplayer fifo commands
-    cmds = []
-    for sub in subs:
-        path = prefix + sub[0]
-        logging.info("Saving subtitle as {0}".format(path))
-        f = open(path,"wb")
-        f.write(convert2utf8(sub[1]))
-        f.close()
-        cmds.append("sub_load \"{0}\"".format(path))
-    if subs:
-        cmds.append("sub_file 0")
-
-#    IPCPipe().send(cmds)
-    cmd_conn_write_end.send(cmds)
-
-#todo: class again
-class SubFetcher(object):
-    pass
-
+            self.__req.add_header(h[0],h[1])
+        self.__req.add_data(data)
+    
 class PlaylistGenerator(object):
     """Generate a list for continuous playing.
     """
@@ -623,12 +622,14 @@ class MediaContext:
     filename = ""
     fullpath = ""
 
-    args = []
-    
     seekable = True
     is_video = False
 
-    subtitle_type = []
+    args = []
+    
+    hash_str = ""
+
+    subtitle_types = []
     subtitles = []
 
     def destory(self):
@@ -668,8 +669,9 @@ class MediaContext:
             self.__gen_subtitle_info(info)
 
             self.args.extend(VideoExpander().expand(self))
-            if not dry_run and "text" in self.subtitle_type:
-                self.__proc_fetcher = multiprocessing.Process(target=handle_shooter_subtitles, args=(self, IPCPipe().writer))
+            if not dry_run and not "text" in "".join(self.subtitle_types):
+                sub = SubFetcher()
+                self.__proc_fetcher = multiprocessing.Process(target=sub.fetch, args=(self,))
                 self.__proc_fetcher.start()
 
         self.args.extend(CmdLineParser().args)
@@ -686,8 +688,10 @@ class MediaContext:
         if self.is_video:
             items.append("    Dim(pixel):     {0} @ {1}\n"
                          "    Dim(disp):      {2} @ {3}\n"
-                         "    Subtitles:      {4}\n".format("{0[0]}x{0[1]}".format(self.pix_dim), self.pix_dim[2],
+                         "    Hash string:    {4}\n"
+                         "    Subtitles:      {5}\n".format("{0[0]}x{0[1]}".format(self.pix_dim),  self.pix_dim[2],
                                                             "{0[0]}x{0[1]}".format(self.disp_dim), self.disp_dim[2],
+                                                            self.hash_str,
                                                             "\n                    ".join(self.subtitles)))
             
         items.append("{0}".format(" ".join(self.args)))
@@ -696,9 +700,7 @@ class MediaContext:
 
     def __gen_meta_info(self,info):
         self.filename = info["ID_FILENAME"]
-        
         self.fullpath = os.path.realpath(self.filename)
-
         self.seekable = (info["ID_SEEKABLE"] == "1")
         self.is_video = True if "ID_VIDEO_ID" in info else False
         
@@ -711,28 +713,38 @@ class MediaContext:
         # non-square pixel, i.e. w:h != aspect
         # used for correct calculation in video expanding
         self.disp_dim = self.pix_dim[:]
-        if abs(Fraction(self.pix_dim[0],self.pix_dim[1]) - self.pix_dim[2]) > 0.1:
+        if self.disp_dim[2] == 0:
+            self.disp_dim[2] = Fraction(self.disp_dim[0],self.disp_dim[1])
+        if abs(Fraction(self.disp_dim[0],self.disp_dim[1]) - self.disp_dim[2]) > 0.1:
             self.disp_dim[0] = int(round(self.disp_dim[1] * self.disp_dim[2]))
+
+        sz = os.path.getsize(self.fullpath)
+        if sz>8192:
+            with open(self.fullpath, 'rb') as f:
+                self.hash_str = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
             
     def __gen_subtitle_info(self,info):
         if "ID_SUBTITLE_ID" in info:
-            self.subtitle_type.append("embedded text")
+            self.subtitle_types.append("embedded text")
             self.subtitles.extend(info["ID_SUBTITLE_FILENAME"])
         if "ID_FILE_SUB_ID" in info:
-            self.subtitle_type.append("external text")
+            self.subtitle_types.append("external text")
             self.subtitles.extend(info["ID_FILE_SUB_FILENAME"])
             if not dry_run:
                 logging.debug("Trying coverting subtitles to UTF-8...")
                 for p in info["ID_FILE_SUB_FILENAME"]:
-                    convert2utf8(p,True)
+                    UTF8Converter().convert(p,True)
         if "ID_VOBSUB_ID" in info:
-            self.subtitle_type.append("external vobsub")
+            self.subtitle_types.append("external vobsub")
             self.subtitles.extend(info["ID_VOBSUB_FILENAME"])
 
 @singleton
 class IPCPipe(object):
     def send(self, cmd):
-        self.writer.send(cmd)
+        if isinstance(cmd, str):
+            self.writer.send([cmd])
+        else:
+            self.writer.send(cmd)
     
     def terminate(self):
         if not dry_run:
@@ -769,8 +781,8 @@ class Fifo:
         import tempfile
         self.__tmpdir = tempfile.mkdtemp()
         self.path = os.path.join(self.__tmpdir, "mplayer_fifo")
-        os.mkfifo(self.path)
         self.args = "-input file={0}".format(self.path).split()            
+        os.mkfifo(self.path)
     def __del__(self):
         os.unlink(self.path)
         os.rmdir(self.__tmpdir)

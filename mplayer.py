@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/05 15:07:19>
+# Time-stamp: <subi 2012/04/05 15:08:57>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -14,6 +14,7 @@
 #    ii)  remember last settings (volume/hue/contrast etc.)
 #    iii) dedicated dir for subtitles
 #    iv)  MPlayerContext
+#    v)   sub_delay info from shooter
 # * remember last volume/hue/contrast for continuous playing (don't need data
 #   persistance)
 # * shooter sometimes return a false subtitle with the same time length. find a

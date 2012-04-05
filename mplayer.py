@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/05 14:04:06>
+# Time-stamp: <subi 2012/04/05 15:07:19>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -76,7 +76,6 @@ class DimensionChecker(object):
 
         self.dim = dim + [Fraction(dim[0],dim[1])]
 
-@singleton
 class VideoExpander(object):
     """Video expanding attaches two black bands to the top and bottom of the video.
     MPlayer will then render osds (subtitles etc.) within the bands.
@@ -190,18 +189,15 @@ class VideoExpander(object):
             self.__use_ass = False
         else:
             libass_path = None
-            p = subprocess.Popen(["ldd",MPlayerContext().path], stdout=subprocess.PIPE)
-            for l in p.communicate()[0].splitlines():
+            for l in subprocess.check_output(["ldd",MPlayerContext().path]).splitlines():
                 if "libass" in l:
                     libass_path = l.split()[2]
             if not libass_path:
                 self.__use_ass = False
             else:
-                p = subprocess.Popen(["ldd",libass_path], stdout=subprocess.PIPE)
-                if not "libfontconfig" in p.communicate()[0]:
+                if not "libfontconfig" in subprocess.check_output(["ldd",libass_path]):
                     self.__use_ass = False
 
-@singleton
 class UTF8Converter(object):
     ascii = ["[\x09\x0A\x0D\x20-\x7E]"]
 

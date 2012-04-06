@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/07 00:43:51>
+# Time-stamp: <subi 2012/04/07 00:46:14>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -732,7 +732,7 @@ class MediaContext:
                     UTF8Converter().convert(p,True)
         if "ID_VOBSUB_ID" in info:
             self.subtitle_types.append("external vobsub")
-            self.subtitles.extend(info["ID_VOBSUB_FILENAME"])
+#            self.subtitles.extend(info["ID_VOBSUB_FILENAME"])
 
 @singleton
 class IPCPipe(object):

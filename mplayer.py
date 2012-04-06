@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/05 15:08:57>
+# Time-stamp: <subi 2012/04/05 15:32:14>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -315,7 +315,6 @@ class SubFetcher(object):
             logging.info("Failed to fetch subtitles.")
             IPCPipe().send("osd_show_text \"查询字幕失败.\" 3000")
             
-
     def __init__(self):
         import httplib
         self.__schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]

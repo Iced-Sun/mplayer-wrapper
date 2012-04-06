@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/05 15:32:14>
+# Time-stamp: <subi 2012/04/07 00:43:51>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -722,7 +722,7 @@ class MediaContext:
     def __gen_subtitle_info(self,info):
         if "ID_SUBTITLE_ID" in info:
             self.subtitle_types.append("embedded text")
-            self.subtitles.extend(info["ID_SUBTITLE_FILENAME"])
+#            self.subtitles.extend(info["ID_SUBTITLE_FILENAME"])
         if "ID_FILE_SUB_ID" in info:
             self.subtitle_types.append("external text")
             self.subtitles.extend(info["ID_FILE_SUB_FILENAME"])

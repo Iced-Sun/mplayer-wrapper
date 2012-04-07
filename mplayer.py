@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/07 00:46:14>
+# Time-stamp: <subi 2012/04/07 23:08:30>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -510,7 +510,8 @@ class CmdLineParser:
         if self.bad_args:
             logging.info("Unsupported options \"" + " ".join(self.bad_args) + "\" are automatically suspressed.")
 
-        self.files = PlaylistGenerator(self.files).playlist
+        if self.role == "player":
+            self.files = PlaylistGenerator(self.files).playlist
         
 @singleton
 class MPlayerContext(object):

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <subi 2012/04/07 23:08:30>
+# Time-stamp: <2012-05-13 23:48:43 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -263,7 +263,7 @@ class UTF8Converter(object):
         else:
             ss = ss.decode(enc,'ignore').encode("utf8")
             if is_path:
-                with open(obj,"wb") as f:
+                with open(s,"wb") as f:
                     f.write(ss)
             else:
                 return ss

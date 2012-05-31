@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-05-13 23:48:43 by subi>
+# Time-stamp: <2012-05-29 10:25:24 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -78,26 +78,27 @@ class DimensionChecker(object):
         self.dim = dim + [Fraction(dim[0],dim[1])]
 
 class VideoExpander(object):
-    """Video expanding attaches two black bands to the top and bottom of the video.
-    MPlayer will then render osds (subtitles etc.) within the bands.
+    """Video expanding attaches two black bands to the top and bottom of the
+    video.  MPlayer will then render osds (subtitles etc.) within the bands.
         
     Two ways exist:
     1. -vf expand:
-       everything done by mplayer, not compatible with libass (subtitle overlapping
-       problem). Have to use the old plain subtitle renderer (-noass).
+       everything done by mplayer, not compatible with libass (subtitle
+       overlapping problem). Have to use the old plain subtitle renderer
+       (-noass).
     2. -ass-use-margin:
-       everything done by YOU, including the calculation of the margin heights and
-       the font scales. The benefit is you can use "-ass".
+       everything done by YOU, including the calculation of the margin heights
+       and the font scales. The benefit is you can use "-ass".
         
-    The "ass-use-margin" method has a very annoying problem: the subtitle characters
-    are horizontally stretched. We need a fix.
+    The "ass-use-margin" method has a very annoying problem: the subtitle
+    characters are horizontally stretched. We need a fix.
         
-    A wild guess for what is done in the ass renderer of mplayer/libass is taken
-    after some googling and experiments:
-    1. there are 3 different dimensions: the video, the display, and the ass rendering
-       screen (PlayResX:PlayResY)
-    2. the font scale is caculated w.r.t. the ASS styles of "PlayResX, PlayResY, ScaleX,
-       ScaleY" and the mplayer option "-ass-font-scale":
+    A wild guess for what is done in the ass renderer of mplayer/libass is
+    taken after some googling and experiments:
+    1. there are 3 different dimensions: the video, the display, and the ass
+       rendering screen/canvas (PlayResX:PlayResY)
+    2. the font scale is calculated w.r.t. the ASS styles of "PlayResX,
+       PlayResY, ScaleX, ScaleY" and the mplayer option "-ass-font-scale":
        a. PlayResY defaults to 288
        b. PlayResX defaults to PlayResY/1.3333
        c. ScaleX, ScaleY both defaults to 1
@@ -111,12 +112,12 @@ class VideoExpander(object):
                font_Y_disp = scale_base_disp * ScaleY
                font_X_disp = scale_base_disp * ScaleX
         
-    This is why the subtitle is alway of the same size with the same display size for
-    different videos. (disp_Y/PlayResY is constant when PlayResY takes the default
-    value.)
+    This is why the subtitle is alway of the same size with the same display
+    size for different videos. (disp_Y/PlayResY is constant when PlayResY takes
+    the default value.)
         
-    While the video expanding (in Y axis) is concerned, the situation becomes a little
-    messy:
+    While the video expanding (in Y axis) is concerned, the situation becomes a
+    little messy:
              ex_scale_base = ex_video_Y/PlayResY * ass_font_scale
              ex_font_Y = (video_Y/ex_video_Y) * ex_scale_base * ScaleY
                        = font_Y
@@ -126,18 +127,34 @@ class VideoExpander(object):
     Clearly the subtitle is horizontally stretched (vertically unchanged).
         
     So, what we need is:
-    1. do expanding (easy)
+    1. do expanding
     2. make font be of correct aspect (simply let ScaleX = video_Y/ex_video_Y )
         
     Additionally, we also want to place the subtitle as close to the picture as
-    possible (instead of the bottom of the screen, which is visual distracting).
-    This can be done via the ASS style tag "MarginV", which is the relative
-    vertical margin in the ass rendering screen (i.e. the screan of
-    PlayResX:PlayResY).
+    possible (instead of the bottom of the screen, which is visual
+    distracting).  This can be done via the ASS style tag "MarginV", which is
+    the relative vertical margin in the ass rendering screen (i.e. the screan
+    of PlayResX:PlayResY).
         
-    Another approach is just adding a black band that is wide enough to contain
-    the subtitles, avoiding the use of "MarginV".
+    Another approach is just adding a black band with adequate width to contain
+    the OSDs, avoiding ugly "MarginV".
     """
+    def __init__(self):
+        self.__use_ass = True
+
+        if not MPlayerContext().support("ass") or "-noass" in CmdLineParser().args:
+            self.__use_ass = False
+        else:
+            libass_path = None
+            for l in subprocess.check_output(["ldd",MPlayerContext().path]).splitlines():
+                if "libass" in l:
+                    libass_path = l.split()[2]
+            if not libass_path:
+                self.__use_ass = False
+            else:
+                if not "libfontconfig" in subprocess.check_output(["ldd",libass_path]):
+                    self.__use_ass = False
+
     def expand(self, media):
         """Given a MediaContext, expand the video.
    
@@ -183,22 +200,6 @@ class VideoExpander(object):
                         .format(subfont_text_scale, media.pix_dim[0], display_aspect).split())
         return args
         
-    def __init__(self):
-        self.__use_ass = True
-
-        if not MPlayerContext().support("ass") or "-noass" in CmdLineParser().args:
-            self.__use_ass = False
-        else:
-            libass_path = None
-            for l in subprocess.check_output(["ldd",MPlayerContext().path]).splitlines():
-                if "libass" in l:
-                    libass_path = l.split()[2]
-            if not libass_path:
-                self.__use_ass = False
-            else:
-                if not "libfontconfig" in subprocess.check_output(["ldd",libass_path]):
-                    self.__use_ass = False
-
 class UTF8Converter(object):
     ascii = ["[\x09\x0A\x0D\x20-\x7E]"]
 
@@ -271,20 +272,21 @@ class UTF8Converter(object):
 class SubFetcher(object):
     subtitles = []
     
-    __req = None
+    def __init__(self):
+        import httplib
+        self.__schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]
+        self.__servers = ["www", "splayer"] + ["splayer"+str(i) for i in range(1,13)]
 
-    __schemas = []
-    __servers = []
-
-    __try_times = [0, 5, 10, 30, 120]
-    __need_retry = False
+        self.__req = None
+        self.__tries = [0, 10, 30, 60, 120]
+        self.__fetch_successful = False
 
     def fetch(self, media):
         # wait for mplayer to settle up
         time.sleep(3)
 
         IPCPipe().send("osd_show_text \"正在查询字幕...\" 5000")
-        for i, t in enumerate(self.__try_times):
+        for i, t in enumerate(self.__tries):
             try:
                 logging.debug("Wait for {0}s to connect to shooter server ({1})...".format(t,i))
                 time.sleep(t)
@@ -293,7 +295,7 @@ class SubFetcher(object):
                 response = urllib2.urlopen(self.__req)
                 self.__parse_response(response)
 
-                if not self.__need_retry:
+                if not self.__fetch_successful:
                     break
             except urllib2.URLError:
                 pass
@@ -315,11 +317,6 @@ class SubFetcher(object):
             logging.info("Failed to fetch subtitles.")
             IPCPipe().send("osd_show_text \"查询字幕失败.\" 3000")
             
-    def __init__(self):
-        import httplib
-        self.__schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]
-        self.__servers = ["www", "splayer"] + ["splayer"+str(i) for i in range(1,13)]
-
     def __parse_response(self, response):
         c = response.read(1)
         package_count = struct.unpack("!b", c)[0]
@@ -362,7 +359,7 @@ class SubFetcher(object):
                                            'content': gzip.GzipFile(fileobj=StringIO(sub)).read()})
                 else:
                     logging.warning("Unknown format or incomplete data. Try again later...")
-                    self.__need_retry = True
+                    self.__fetch_successful = True
 
         logging.info("{0} subtitle(s) fetched.".format(len(self.subtitles)))
 

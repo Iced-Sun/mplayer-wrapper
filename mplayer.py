@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-06-23 12:57:47 by subi>
+# Time-stamp: <2012-06-23 13:03:42 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -563,17 +563,17 @@ class MPlayerInstance(object):
 
         return [l for l in p.communicate()[0].splitlines() if l.startswith("ID_")]
 
-    def play(self, media=[]):
-        if dry_run:
-            return
+    def play(self, filename=[]):
+        media = MediaContext(filename)
 
-        self.__process = subprocess.Popen(media.args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
-        self.__tee()
+        if not dry_run:
+            self.__process = subprocess.Popen(media.args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
+            self.__tee()
+            logging.debug("Last timestamp: {0}".format(self.last_timestamp))
+            logging.debug("Last exit status: {0}".format(self.last_exit_status))
+            self.__process = None
 
-        logging.debug("Last timestamp: {0}".format(self.last_timestamp))
-        logging.debug("Last exit status: {0}".format(self.last_exit_status))
-        
-        self.__process = None
+        media.destory()
 
     def __tee(self):
         f = sys.stdout
@@ -800,9 +800,7 @@ def run():
         else:
             IPCPipe()
             for f in CmdLineParser().files:
-                media = MediaContext(f)
-                MPlayerInstance().play(media)
-                media.destory()
+                MPlayerInstance().play(f)
 
                 if MPlayerInstance().last_exit_status == "Quit":
                     break

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-05-29 10:25:24 by subi>
+# Time-stamp: <2012-06-23 12:57:47 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -564,49 +564,59 @@ class MPlayerInstance(object):
         return [l for l in p.communicate()[0].splitlines() if l.startswith("ID_")]
 
     def play(self, media=[]):
-        def tee(f=sys.stdout):
-            def flush(f,lines):
-                f.write(''.join(lines.pop(0)))
-                f.flush()
-                lines.append([])
-
-            p = self.__process
-            # cache 5 lines in case of unexpected outputs
-            lines = [[] for i in range(5)]
-            while True:
-                c = p.stdout.read(1)
-                lines[4].append(c)
-                if c == '\n':
-                    flush(f,lines)
-                elif c == '\r':
-                    d = p.stdout.read(1)
-                    if d == '\n':
-                        lines[4].append('\n')
-                        flush(f,lines)
-                    else:
-                        flush(f,lines)
-                        lines[4].append(d)
-                elif c == '':
-                    break
-            for l in (''.join(ll) for ll in lines):
-                if l.startswith(('A:','V:')):
-                    self.last_timestamp = float(l[2:9])
-                if l.startswith('Exiting...'):
-                    self.last_exit_status = l[12:len(l)-2]
-                f.write(l)
-                f.flush()
-
         if dry_run:
             return
 
         self.__process = subprocess.Popen(media.args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
-        tee()
+        self.__tee()
 
         logging.debug("Last timestamp: {0}".format(self.last_timestamp))
         logging.debug("Last exit status: {0}".format(self.last_exit_status))
+        
+        self.__process = None
 
+    def __tee(self):
+        f = sys.stdout
+        p = self.__process
+        
+        # cache 5 lines in case of unexpected outputs
+        lines = [[] for i in range(5)]
+        while True:
+            c = p.stdout.read(1)
+            if not c:
+                break
+            lines[4].append(c)
+
+            # carriage return / linefeed
+            if c == '\n':
+                self.__flush_first_line(f,lines)
+            elif c == '\r':
+                d = p.stdout.read(1)
+                if d == '\n':
+                    lines[4].append('\n')
+                    self.__flush_first_line(f,lines)
+                else:
+                    self.__flush_first_line(f,lines)
+                    lines[4].append(d)
+            else:
+                pass
+
+        # save info and flush rest outputs
+        for l in (''.join(ll) for ll in lines):
+            if l.startswith(('A:','V:')):
+                self.last_timestamp = float(l[2:9])
+            if l.startswith('Exiting...'):
+                self.last_exit_status = l[12:len(l)-2]
+            f.write(l)
+        f.flush()
+
+    def __flush_first_line(self, fileobj, lines):
+        fileobj.write(''.join(lines.pop(0)))
+        fileobj.flush()
+        lines.append([])
+        
     def __init__(self):
-        pass
+        self.__process = None
 
 class MediaContext:
     """Construct media metadata and args for mplayer
@@ -720,7 +730,7 @@ class MediaContext:
     def __gen_subtitle_info(self,info):
         if "ID_SUBTITLE_ID" in info:
             self.subtitle_types.append("embedded text")
-#            self.subtitles.extend(info["ID_SUBTITLE_FILENAME"])
+            self.subtitles.extend(["(embedded text)"])
         if "ID_FILE_SUB_ID" in info:
             self.subtitle_types.append("external text")
             self.subtitles.extend(info["ID_FILE_SUB_FILENAME"])

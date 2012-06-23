@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-06-23 14:33:51 by subi>
+# Time-stamp: <2012-06-23 16:57:25 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -21,7 +21,6 @@
 #   cure. (using zenity, pygtk, or both?)
 # * xset s off
 # * "not compiled in option"
-# * IPCPipe need reconsidering
 # * detect the language in embedded subtitles, which is guaranteed to be utf8
 # * use ffprobe for better(?) metainfo detection?
 
@@ -29,7 +28,7 @@ import logging
 import os, sys, time
 import struct, urllib2
 import locale,re
-import multiprocessing, subprocess
+import subprocess, threading
 import hashlib
 from fractions import Fraction
 
@@ -75,6 +74,18 @@ def check_screen_dim():
                     dim = map(int,d)
 
     return dim + [Fraction(dim[0],dim[1])]
+
+@singleton
+class Fifo:
+    def __init__(self):
+        import tempfile
+        self.__tmpdir = tempfile.mkdtemp()
+        self.path = os.path.join(self.__tmpdir, "mplayer_fifo")
+        self.args = "-input file={0}".format(self.path).split()            
+        os.mkfifo(self.path)
+    def __del__(self):
+        os.unlink(self.path)
+        os.rmdir(self.__tmpdir)
 
 class VideoExpander(object):
     """Video expanding attaches two black bands to the top and bottom of the
@@ -275,7 +286,7 @@ class SubFetcher(object):
         # wait for mplayer to settle up
         time.sleep(3)
 
-        IPCPipe().send("osd_show_text \"正在查询字幕...\" 5000")
+        MPlayerInstance().send("osd_show_text \"正在查询字幕...\" 5000")
         for i, t in enumerate(self.__tries):
             try:
                 logging.debug("Wait for {0}s to connect to shooter server ({1})...".format(t,i))
@@ -285,10 +296,10 @@ class SubFetcher(object):
                 response = urllib2.urlopen(self.__req)
                 self.__parse_response(response)
 
-                if not self.__fetch_successful:
+                if self.__fetch_successful:
                     break
-            except urllib2.URLError:
-                pass
+            except urllib2.URLError, e:
+                logging.debug(e)
 
         if self.subtitles:
             prefix = os.path.splitext(media.fullpath)[0]
@@ -299,13 +310,16 @@ class SubFetcher(object):
                 logging.info("Saving subtitle as {0}".format(path))
                 with open(path,"wb") as f:
                     f.write(UTF8Converter().convert(s['content']))
-                IPCPipe().send("sub_load \"{0}\"".format(path))
+                MPlayerInstance().send("sub_load \"{0}\"".format(path))
                 if not s['delay'] == 0:
-                    IPCPipe().send("sub_delay \"{0}\"".format(s['delay']))
-            IPCPipe().send("sub_file 0")
+                    MPlayerInstance().send("sub_delay \"{0}\"".format(s['delay']))
+            MPlayerInstance().send("sub_file 0")
         else:
             logging.info("Failed to fetch subtitles.")
-            IPCPipe().send("osd_show_text \"查询字幕失败.\" 3000")
+            MPlayerInstance().send("osd_show_text \"查询字幕失败.\" 3000")
+
+        # reset the state for the next media
+        self.__fetch_successful = False
     
     def __init__(self):
         import httplib
@@ -349,6 +363,7 @@ class SubFetcher(object):
                 file_len = struct.unpack("!I", c)[0]
                 sub = response.read(file_len)
 
+                logging.info(' subtitle format is: {0}'.format(ext))
                 if sub.startswith("\x1f\x8b"):
                     import gzip
                     from cStringIO import StringIO
@@ -356,9 +371,14 @@ class SubFetcher(object):
                                            'extension': ext,
                                            'delay': sub_delay,
                                            'content': gzip.GzipFile(fileobj=StringIO(sub)).read()})
-                else:
-                    logging.warning("Unknown format or incomplete data. Try again later...")
                     self.__fetch_successful = True
+                else:
+                    self.subtitles.append({'suffix': "",
+                                           'extension': ext,
+                                           'delay': sub_delay,
+                                           'content': sub})
+                    self.__fetch_successful = True
+#                    logging.warning("Unknown format or incomplete data. Try again later...")
 
         logging.info("{0} subtitle(s) fetched.".format(len(self.subtitles)))
 
@@ -553,6 +573,15 @@ class MPlayerInstance(object):
     last_timestamp = 0.0
     last_exit_status = None
 
+    def send(self,cmd):
+        if self.__process:
+            logging.debug("Sending command \"{0}\" to {1}...".format(cmd, Fifo().path))
+            fifo = open(Fifo().path,"w")
+            fifo.write(cmd+'\n')
+            fifo.close()
+        else:
+            logging.debug("Command \"{0}\" discarded.".format(cmd))
+
     def identify(self, filelist):
         args = [MPlayerContext().path] +"-vo null -ao null -frames 0 -identify".split() + filelist
         p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -568,7 +597,7 @@ class MPlayerInstance(object):
             logging.debug("Last exit status: {0}".format(self.last_exit_status))
             self.__process = None
         media.destory()
-
+        
     def __tee(self):
         f = sys.stdout
         p = self.__process
@@ -616,9 +645,10 @@ class MediaContext:
     """Construct media metadata and args for mplayer
     """
     def destory(self):
-        if self.__proc_fetcher and self.__proc_fetcher.is_alive():
-            logging.info("Terminating subtitle fetching...")
-            self.__proc_fetcher.terminate()
+        pass
+#        if self.__proc_fetcher and self.__proc_fetcher.is_alive():
+#            logging.info("Terminating subtitle fetching...")
+#            self.__proc_fetcher.terminate()
     
     def __init__(self, path):
         """Parse the output by midentify.
@@ -626,7 +656,8 @@ class MediaContext:
         self.filename = path
         self.args = [MPlayerContext().path]
 
-        self.__proc_fetcher = None
+        self.__fetch_thread = None
+#        self.__proc_fetcher = None
         self.__subtitle_keys = ["ID_SUBTITLE_ID",       "ID_FILE_SUB_ID",       "ID_VOBSUB_ID",
                                 "ID_SUBTITLE_FILENAME", "ID_FILE_SUB_FILENAME", "ID_VOBSUB_FILENAME"]
 
@@ -650,9 +681,12 @@ class MediaContext:
 
                 self.args.extend(VideoExpander().expand(self))
                 if not dry_run and not "text" in "".join(self.subtitle_types):
-                    sub = SubFetcher()
-                    self.__proc_fetcher = multiprocessing.Process(target=sub.fetch, args=(self,))
-                    self.__proc_fetcher.start()
+                    self.__fetch_thread = threading.Thread(target=SubFetcher().fetch, args=(self,))
+                    self.__fetch_thread.daemon = True
+                    self.__fetch_thread.start()
+#                    sub = SubFetcher()
+#                    self.__proc_fetcher = multiprocessing.Process(target=sub.fetch, args=(self,))
+#                    self.__proc_fetcher.start()
 
                 self.args.extend("-subcp utf8".split())
                 self.args.extend(Fifo().args)
@@ -723,55 +757,6 @@ class MediaContext:
             self.subtitle_types.append("external vobsub")
 #            self.subtitles.extend(info["ID_VOBSUB_FILENAME"])
 
-@singleton
-class IPCPipe(object):
-    def send(self, cmd):
-        if isinstance(cmd, str):
-            self.writer.send([cmd])
-        else:
-            self.writer.send(cmd)
-    
-    def terminate(self):
-        if not dry_run:
-            self.__proc_listener.terminate()
-
-    def __init__(self):
-        def listen(fifo_path):
-            """Run in another process. how could pass the MPlayer subprocess to it?
-            """
-            def send_cmd(c):
-                # FIXME
-                if True: #mplayer.is_alive():
-                    logging.debug("Sending command \"{0}\" to {1}".format(c, fifo_path))
-                    fifo = open(fifo_path,"w")
-                    fifo.write(c+'\n')
-                    fifo.close()
-
-            while True:
-                if self.reader.poll():
-                    for c in self.reader.recv():
-                        send_cmd(c)
-                else:
-                    time.sleep(2)
-
-        if not dry_run:
-            self.reader, self.writer = multiprocessing.Pipe(False)
-
-            self.__proc_listener = multiprocessing.Process(target=listen, args=(Fifo().path,))
-            self.__proc_listener.start()
-
-@singleton
-class Fifo:
-    def __init__(self):
-        import tempfile
-        self.__tmpdir = tempfile.mkdtemp()
-        self.path = os.path.join(self.__tmpdir, "mplayer_fifo")
-        self.args = "-input file={0}".format(self.path).split()            
-        os.mkfifo(self.path)
-    def __del__(self):
-        os.unlink(self.path)
-        os.rmdir(self.__tmpdir)
-
 def run():
     if CmdLineParser().role == "identifier":
         print '\n'.join(MPlayerInstance().identify(CmdLineParser().files))
@@ -781,13 +766,10 @@ def run():
         if not files:
             MPlayerInstance().play()
         else:
-            IPCPipe()
             for f in files:
                 MPlayerInstance().play(f)
-
                 if MPlayerInstance().last_exit_status == "Quit":
                     break
-            IPCPipe().terminate()
             
 if __name__ == "__main__":
     dry_run = False

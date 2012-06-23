@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-06-23 13:57:05 by subi>
+# Time-stamp: <2012-06-23 14:33:51 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -131,8 +131,8 @@ class VideoExpander(object):
         
     Additionally, we also want to place the subtitle as close to the picture as
     possible (instead of the bottom of the screen, which is visual
-    distracting).  This can be done via the ASS style tag "MarginV", which is
-    the relative vertical margin in the ass rendering screen (i.e. the screan
+    distracting). This can be done via the ASS style tag "MarginV", which denotes
+    the relative vertical margin in the ass rendering screen (i.e. the screen
     of PlayResX:PlayResY).
         
     Another approach is just adding a black band with adequate width to contain
@@ -270,15 +270,6 @@ class UTF8Converter(object):
 
 class SubFetcher(object):
     subtitles = []
-    
-    def __init__(self):
-        import httplib
-        self.__schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]
-        self.__servers = ["www", "splayer"] + ["splayer"+str(i) for i in range(1,13)]
-
-        self.__req = None
-        self.__tries = [0, 10, 30, 60, 120]
-        self.__fetch_successful = False
 
     def fetch(self, media):
         # wait for mplayer to settle up
@@ -315,7 +306,16 @@ class SubFetcher(object):
         else:
             logging.info("Failed to fetch subtitles.")
             IPCPipe().send("osd_show_text \"查询字幕失败.\" 3000")
-            
+    
+    def __init__(self):
+        import httplib
+        self.__schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]
+        self.__servers = ["www", "splayer"] + ["splayer"+str(i) for i in range(1,13)]
+
+        self.__req = None
+        self.__tries = [0, 10, 30, 60, 120]
+        self.__fetch_successful = False
+
     def __parse_response(self, response):
         c = response.read(1)
         package_count = struct.unpack("!b", c)[0]
@@ -506,9 +506,6 @@ class CmdLineParser:
         if self.bad_args:
             logging.info("Unsupported options \"" + " ".join(self.bad_args) + "\" are automatically suspressed.")
 
-        if self.role == "player":
-            self.files = PlaylistGenerator(self.files).playlist
-        
 @singleton
 class MPlayerContext(object):
     path = None
@@ -564,14 +561,12 @@ class MPlayerInstance(object):
 
     def play(self, filename=[]):
         media = MediaContext(filename)
-
         if not dry_run:
             self.__process = subprocess.Popen(media.args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
             self.__tee()
             logging.debug("Last timestamp: {0}".format(self.last_timestamp))
             logging.debug("Last exit status: {0}".format(self.last_exit_status))
             self.__process = None
-
         media.destory()
 
     def __tee(self):
@@ -620,21 +615,6 @@ class MPlayerInstance(object):
 class MediaContext:
     """Construct media metadata and args for mplayer
     """
-    exist = True
-
-    filename = ""
-    fullpath = ""
-
-    seekable = True
-    is_video = False
-
-    args = []
-    
-    hash_str = ""
-
-    subtitle_types = []
-    subtitles = []
-
     def destory(self):
         if self.__proc_fetcher and self.__proc_fetcher.is_alive():
             logging.info("Terminating subtitle fetching...")
@@ -644,7 +624,7 @@ class MediaContext:
         """Parse the output by midentify.
         """
         self.filename = path
-        self.args = [MPlayerContext().path] + "-subcp utf8".split() + Fifo().args
+        self.args = [MPlayerContext().path]
 
         self.__proc_fetcher = None
         self.__subtitle_keys = ["ID_SUBTITLE_ID",       "ID_FILE_SUB_ID",       "ID_VOBSUB_ID",
@@ -661,21 +641,21 @@ class MediaContext:
             else:
                 info[a[0]] = a[2]
 
-        if not "ID_FILENAME" in info:
-            self.exist = False;
-            return
-
-        self.__gen_meta_info(info)
+        if "ID_FILENAME" in info:
+            self.__gen_meta_info(info)
         
-        if self.is_video:
-            self.__gen_video_info(info)
-            self.__gen_subtitle_info(info)
+            if self.is_video:
+                self.__gen_video_info(info)
+                self.__gen_subtitle_info(info)
 
-            self.args.extend(VideoExpander().expand(self))
-            if not dry_run and not "text" in "".join(self.subtitle_types):
-                sub = SubFetcher()
-                self.__proc_fetcher = multiprocessing.Process(target=sub.fetch, args=(self,))
-                self.__proc_fetcher.start()
+                self.args.extend(VideoExpander().expand(self))
+                if not dry_run and not "text" in "".join(self.subtitle_types):
+                    sub = SubFetcher()
+                    self.__proc_fetcher = multiprocessing.Process(target=sub.fetch, args=(self,))
+                    self.__proc_fetcher.start()
+
+                self.args.extend("-subcp utf8".split())
+                self.args.extend(Fifo().args)
 
         self.args.extend(CmdLineParser().args)
         self.args.append(self.filename)
@@ -727,6 +707,8 @@ class MediaContext:
                 self.hash_str = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
             
     def __gen_subtitle_info(self,info):
+        self.subtitle_types = []
+        self.subtitles = []
         if "ID_SUBTITLE_ID" in info:
             self.subtitle_types.append("embedded text")
             self.subtitles.extend(["(embedded text)"])
@@ -794,11 +776,13 @@ def run():
     if CmdLineParser().role == "identifier":
         print '\n'.join(MPlayerInstance().identify(CmdLineParser().files))
     elif CmdLineParser().role == "player":
-        if not CmdLineParser().files:
+        files = PlaylistGenerator(CmdLineParser().files).playlist
+
+        if not files:
             MPlayerInstance().play()
         else:
             IPCPipe()
-            for f in CmdLineParser().files:
+            for f in files:
                 MPlayerInstance().play(f)
 
                 if MPlayerInstance().last_exit_status == "Quit":

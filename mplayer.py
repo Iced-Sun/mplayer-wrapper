@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-06-23 13:03:42 by subi>
+# Time-stamp: <2012-06-23 13:57:05 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -58,24 +58,23 @@ def which(cmd):
                 return fullpath
     return None
 
-class DimensionChecker(object):
-    def __init__(self):
-        """Select the maximal available screen dimension.
-        """
-        dim = [640, 480]
-        if which("xrandr"):
-            for l in subprocess.check_output(["xrandr"]).splitlines():
-                if l.startswith("*"):
-                    # xrandr 1.1
-                    dim[0] = int(l.split()[1])
-                    dim[1] = int(l.split()[3])
-                    break
-                elif '*' in l:
-                    d = l.split()[0].split('x')
-                    if d[0] > dim[0]:
-                        dim = map(int,d)
+def check_screen_dim():
+    """Select the maximal available screen dimension.
+    """
+    dim = [640, 480]
+    if which("xrandr"):
+        for l in subprocess.check_output(["xrandr"]).splitlines():
+            if l.startswith("*"):
+                # xrandr 1.1
+                dim[0] = int(l.split()[1])
+                dim[1] = int(l.split()[3])
+                break
+            elif '*' in l:
+                d = l.split()[0].split('x')
+                if d[0] > dim[0]:
+                    dim = map(int,d)
 
-        self.dim = dim + [Fraction(dim[0],dim[1])]
+    return dim + [Fraction(dim[0],dim[1])]
 
 class VideoExpander(object):
     """Video expanding attaches two black bands to the top and bottom of the
@@ -160,7 +159,7 @@ class VideoExpander(object):
    
         Return the arguments list for mplayer.
         """
-        display_aspect = DimensionChecker().dim[2]
+        display_aspect = check_screen_dim()[2]
         
         # -subfont-autoscale affects the osd, the plain old subtitle renderer
         # AND the ass subtitle renderer

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-06-23 16:57:25 by subi>
+# Time-stamp: <2012-07-02 12:14:50 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -279,144 +279,6 @@ class UTF8Converter(object):
             else:
                 return ss
 
-class SubFetcher(object):
-    subtitles = []
-
-    def fetch(self, media):
-        # wait for mplayer to settle up
-        time.sleep(3)
-
-        MPlayerInstance().send("osd_show_text \"正在查询字幕...\" 5000")
-        for i, t in enumerate(self.__tries):
-            try:
-                logging.debug("Wait for {0}s to connect to shooter server ({1})...".format(t,i))
-                time.sleep(t)
-
-                self.__build_req(media)
-                response = urllib2.urlopen(self.__req)
-                self.__parse_response(response)
-
-                if self.__fetch_successful:
-                    break
-            except urllib2.URLError, e:
-                logging.debug(e)
-
-        if self.subtitles:
-            prefix = os.path.splitext(media.fullpath)[0]
-
-            # save subtitles and generate mplayer fifo commands
-            for s in self.subtitles:
-                path = prefix + s['suffix'] + "." + s['extension']
-                logging.info("Saving subtitle as {0}".format(path))
-                with open(path,"wb") as f:
-                    f.write(UTF8Converter().convert(s['content']))
-                MPlayerInstance().send("sub_load \"{0}\"".format(path))
-                if not s['delay'] == 0:
-                    MPlayerInstance().send("sub_delay \"{0}\"".format(s['delay']))
-            MPlayerInstance().send("sub_file 0")
-        else:
-            logging.info("Failed to fetch subtitles.")
-            MPlayerInstance().send("osd_show_text \"查询字幕失败.\" 3000")
-
-        # reset the state for the next media
-        self.__fetch_successful = False
-    
-    def __init__(self):
-        import httplib
-        self.__schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]
-        self.__servers = ["www", "splayer"] + ["splayer"+str(i) for i in range(1,13)]
-
-        self.__req = None
-        self.__tries = [0, 10, 30, 60, 120]
-        self.__fetch_successful = False
-
-    def __parse_response(self, response):
-        c = response.read(1)
-        package_count = struct.unpack("!b", c)[0]
-
-        logging.info("{0} subtitle packages found".format(package_count))
-
-        for i in range(package_count):
-            c = response.read(8)
-            package_length, desc_length = struct.unpack("!II", c)
-            description = response.read(desc_length).decode("UTF-8")
-            if not description:
-                description = "no description"
-            if 'delay' in description:
-                sub_delay = float(description.partition("=")[2]) / 1000
-            else:
-                sub_delay = 0
-
-            logging.info("Length of current package in bytes: {0}".format(package_length))
-
-            c = response.read(5)
-            package_length, file_count = struct.unpack("!IB", c)
-            
-            logging.info("{0} subtitles in current package ({1})".format(file_count,description))
-
-            for j in range(file_count):
-                c = response.read(8)
-                pack_len, ext_len = struct.unpack("!II", c)
-                ext = response.read(ext_len)
-
-                c = response.read(4)
-                file_len = struct.unpack("!I", c)[0]
-                sub = response.read(file_len)
-
-                logging.info(' subtitle format is: {0}'.format(ext))
-                if sub.startswith("\x1f\x8b"):
-                    import gzip
-                    from cStringIO import StringIO
-                    self.subtitles.append({'suffix': "",
-                                           'extension': ext,
-                                           'delay': sub_delay,
-                                           'content': gzip.GzipFile(fileobj=StringIO(sub)).read()})
-                    self.__fetch_successful = True
-                else:
-                    self.subtitles.append({'suffix': "",
-                                           'extension': ext,
-                                           'delay': sub_delay,
-                                           'content': sub})
-                    self.__fetch_successful = True
-#                    logging.warning("Unknown format or incomplete data. Try again later...")
-
-        logging.info("{0} subtitle(s) fetched.".format(len(self.subtitles)))
-
-        for i,s in enumerate(self.subtitles):
-            s['suffix'] = (str(i) if i>0 else "")
-
-    def __build_req(self, media):
-        import random
-        boundary = "-"*28 + "{0:x}".format(random.getrandbits(48))
-
-        url = "{0}://{1}.shooter.cn/api/subapi.php".format(random.choice(self.__schemas),
-                                                           random.choice(self.__servers))
-
-        header = []
-        header.append(["User-Agent", "SPlayer Build ${0}".format(random.randint(1217,1543))])
-        header.append(["Content-Type", "multipart/form-data; boundary={0}".format(boundary)])
-
-        items = []
-        items.append(["pathinfo", os.path.join("c:/",
-                                               os.path.basename(os.path.dirname(media.fullpath)),
-                                               os.path.basename(media.fullpath))])
-        items.append(["filehash", media.hash_str])
-        items.append(["lang", "chn"])
-
-        data = ''.join(["--{0}\n"
-                        "Content-Disposition: form-data; name=\"{1}\"\n\n"
-                        "{2}\n".format(boundary, d[0], d[1]) for d in items]
-                       + ["--" + boundary + "--"])
-
-        logging.debug("Querying server {0} with\n"
-                      "{1}\n"
-                      "{2}\n".format(url,header,data))
-
-        self.__req = urllib2.Request(url)
-        for h in header:
-            self.__req.add_header(h[0],h[1])
-        self.__req.add_data(data)
-    
 class PlaylistGenerator(object):
     """Generate a list for continuous playing.
     """
@@ -568,6 +430,154 @@ class MPlayerContext(object):
         for extra in ["af-clr","vf-clr"]:
             self.__opts[extra] = 1
 
+def parse_shooter_package(fileobj):
+    subtitles = []
+    f = fileobj
+
+    # read contents
+    c = f.read(1)
+    package_count = struct.unpack("!b", c)[0]
+
+    logging.info("{0} subtitle packages found".format(package_count))
+
+    for i in range(package_count):
+        c = f.read(8)
+        package_length, desc_length = struct.unpack("!II", c)
+        description = f.read(desc_length).decode("UTF-8")
+        if not description:
+            description = "no description"
+        if 'delay' in description:
+            sub_delay = float(description.partition("=")[2]) / 1000
+        else:
+            sub_delay = 0
+
+        logging.info("Length of current package in bytes: {0}".format(package_length))
+
+        c = f.read(5)
+        package_length, file_count = struct.unpack("!IB", c)
+            
+        logging.info("{0} subtitles in current package ({1})".format(file_count,description))
+
+        for j in range(file_count):
+            c = f.read(8)
+            pack_len, ext_len = struct.unpack("!II", c)
+            ext = f.read(ext_len)
+            logging.info(' subtitle format is: {0}'.format(ext))
+
+            c = f.read(4)
+            file_len = struct.unpack("!I", c)[0]
+            sub = f.read(file_len)
+            if sub.startswith("\x1f\x8b"):
+                import gzip
+                from cStringIO import StringIO
+                sub = gzip.GzipFile(fileobj=StringIO(sub)).read()
+
+            subtitles.append({'suffix': '',
+                              'extension': ext,
+                              'delay': sub_delay,
+                              'content': sub})
+
+    logging.info("{0} subtitle(s) fetched.".format(len(subtitles)))
+
+    for i,s in enumerate(subtitles):
+        s['suffix'] = (str(i) if i>0 else "")
+
+    return subtitles
+        
+class SubFetcher(object):
+    subtitles = []
+    
+    def fetch(self, media):
+        # wait for mplayer to settle up
+        time.sleep(3)
+
+        MPlayerInstance().send("osd_show_text \"正在查询字幕...\" 5000")
+        for i, t in enumerate(self.__tries):
+            try:
+                logging.debug("Wait for {0}s to connect to shooter server ({1})...".format(t,i))
+                time.sleep(t)
+
+                self.__build_req(media)
+                response = urllib2.urlopen(self.__req)
+                self.subtitles = parse_shooter_package(response)
+                response.close()
+                
+                if self.subtitles:
+                    break
+                
+            except urllib2.URLError, e:
+                logging.debug(e)
+
+        if self.subtitles:
+            prefix = os.path.splitext(media.fullpath)[0]
+
+            # save subtitles and generate mplayer fifo commands
+            for s in self.subtitles:
+                path = prefix + s['suffix'] + "." + s['extension']
+                logging.info("Saving subtitle as {0}".format(path))
+                with open(path,"wb") as f:
+                    f.write(UTF8Converter().convert(s['content']))
+                MPlayerInstance().send("sub_load \"{0}\"".format(path))
+                if not s['delay'] == 0:
+                    MPlayerInstance().send("sub_delay \"{0}\"".format(s['delay']))
+            MPlayerInstance().send("sub_file 0")
+        else:
+            logging.info("Failed to fetch subtitles.")
+            MPlayerInstance().send("osd_show_text \"查询字幕失败.\" 3000")
+    
+    def __init__(self):
+        import httplib
+        self.__schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]
+        self.__servers = ["www", "splayer", "svplayer"] + ["splayer"+str(i) for i in range(1,13)]
+
+        self.__req = None
+        self.__tries = [0, 10, 30, 60, 120]
+        self.__fetch_successful = False
+
+    def __fake_splayer_env(self, media):
+        self.__rev = 2437                               # as of 2012-07-02
+        self.__filehash = media.hash_str
+        self.__pathinfo= '\\'.join(['D:',
+                                    os.path.basename(os.path.dirname(media.fullpath)),
+                                    os.path.basename(media.fullpath)])
+        vhash_base = 'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(self.__rev,
+                                                                   self.__pathinfo,
+                                                                   self.__filehash)
+        self.__vhash = hashlib.md5(vhash_base).hexdigest()
+        
+    def __build_req(self, media):
+        self.__fake_splayer_env(media)
+
+        import random
+        boundary = "-"*28 + "{0:x}".format(random.getrandbits(48))
+
+        url = "{0}://{1}.shooter.cn/api/subapi.php".format(random.choice(self.__schemas),
+                                                           random.choice(self.__servers))
+
+        header = []
+        header.append(["User-Agent", "SPlayer Build {0}".format(self.__rev)])
+        header.append(["Content-Type", "multipart/form-data; boundary={0}".format(boundary)])
+
+        items = []
+        items.append(["filehash", self.__filehash])
+        items.append(["pathinfo", self.__pathinfo])
+#        items.append(["lang", "eng"])
+        items.append(["vhash", self.__vhash])
+        
+        data = ''.join(["--{0}\n"
+                        "Content-Disposition: form-data; name=\"{1}\"\n\n"
+                        "{2}\n".format(boundary, d[0], d[1]) for d in items]
+                       + ["--" + boundary + "--"])
+
+        logging.debug("Querying server {0} with\n"
+                      "{1}\n"
+                      "{2}\n".format(url,header,data))
+
+        self.__req = urllib2.Request(url)
+        for h in header:
+            self.__req.add_header(h[0],h[1])
+        self.__req.add_data(data)
+    
 @singleton
 class MPlayerInstance(object):
     last_timestamp = 0.0
@@ -596,7 +606,6 @@ class MPlayerInstance(object):
             logging.debug("Last timestamp: {0}".format(self.last_timestamp))
             logging.debug("Last exit status: {0}".format(self.last_exit_status))
             self.__process = None
-        media.destory()
         
     def __tee(self):
         f = sys.stdout
@@ -644,22 +653,18 @@ class MPlayerInstance(object):
 class MediaContext:
     """Construct media metadata and args for mplayer
     """
-    def destory(self):
-        pass
-#        if self.__proc_fetcher and self.__proc_fetcher.is_alive():
-#            logging.info("Terminating subtitle fetching...")
-#            self.__proc_fetcher.terminate()
-    
     def __init__(self, path):
-        """Parse the output by midentify.
+        """Parse the output of midentify.
         """
         self.filename = path
+        self.fullpath = path
+        self.seekable = False
+        self.is_video = False
         self.args = [MPlayerContext().path]
 
         self.__fetch_thread = None
-#        self.__proc_fetcher = None
         self.__subtitle_keys = ["ID_SUBTITLE_ID",       "ID_FILE_SUB_ID",       "ID_VOBSUB_ID",
-                                "ID_SUBTITLE_FILENAME", "ID_FILE_SUB_FILENAME", "ID_VOBSUB_FILENAME"]
+                                                        "ID_FILE_SUB_FILENAME", "ID_VOBSUB_FILENAME"]
 
         info = {}
         for l in MPlayerInstance().identify([path]):
@@ -684,9 +689,6 @@ class MediaContext:
                     self.__fetch_thread = threading.Thread(target=SubFetcher().fetch, args=(self,))
                     self.__fetch_thread.daemon = True
                     self.__fetch_thread.start()
-#                    sub = SubFetcher()
-#                    self.__proc_fetcher = multiprocessing.Process(target=sub.fetch, args=(self,))
-#                    self.__proc_fetcher.start()
 
                 self.args.extend("-subcp utf8".split())
                 self.args.extend(Fifo().args)
@@ -701,7 +703,6 @@ class MediaContext:
                  "  Fullpath:         {0}\n"
                  "  Seekable:         {1}\n"
                  "  Video:            {2}\n".format(self.fullpath, self.seekable, self.is_video)]
-        
         if self.is_video:
             items.append("    Dim(pixel):     {0} @ {1}\n"
                          "    Dim(disp):      {2} @ {3}\n"
@@ -710,9 +711,7 @@ class MediaContext:
                                                             "{0[0]}x{0[1]}".format(self.disp_dim), self.disp_dim[2],
                                                             self.hash_str,
                                                             "\n                    ".join(self.subtitles)))
-            
         items.append("{0}".format(" ".join(self.args)))
-        
         logging.debug(''.join(items))
 
     def __gen_meta_info(self,info):
@@ -736,6 +735,7 @@ class MediaContext:
             self.disp_dim[0] = int(round(self.disp_dim[1] * self.disp_dim[2]))
 
         sz = os.path.getsize(self.fullpath)
+        # suppose a media should not be less than 8k
         if sz>8192:
             with open(self.fullpath, 'rb') as f:
                 self.hash_str = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
@@ -779,3 +779,7 @@ if __name__ == "__main__":
         logging.info("Please run the script with python>=2.7.0")
     else:
         run()
+#        f = open('/home/subi/mi_sub.pkg')
+#        sub = parse_shooter_package(f)
+#        print sub[0]['content']
+        

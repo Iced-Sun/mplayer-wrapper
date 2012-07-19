@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-07-19 22:48:21 by subi>
+# Time-stamp: <2012-07-19 22:58:31 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -221,10 +221,10 @@ class VideoExpander(object):
                 aspect_scale = aspect_scale / vertical_ratio
                 margin = int(self.__ass_margin_scale * media.frame.height)
                 args.extend("-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(margin).split())
-                args.extend("-ass-force-style ScaleY={0}".format(vertical_ratio).split())
+                if MPlayerContext().is_mplayer2:
+                    args.extend("-ass-force-style ScaleY={0}".format(vertical_ratio).split())
                 
             args.extend("-ass -ass-font-scale {0}".format(self.__ass_scale * aspect_scale).split());
-
         else:
             args.extend("-subpos 98 -subfont-text-scale {0} -vf-pre expand={1}::::1:{2}"
                         .format(self.__text_scale, media.frame.width, screen_aspect).split())
@@ -411,6 +411,7 @@ class CmdLineParser:
 @singleton
 class MPlayerContext(object):
     path = None
+    is_mplayer2 = True
     
     def support(self, opt):
         """return value:
@@ -432,11 +433,17 @@ class MPlayerContext(object):
 
     def __gen_opts(self):
         options = subprocess.Popen([self.path, "-list-options"], stdout=subprocess.PIPE).communicate()[0].splitlines()
-        options = options[3:len(options)-4]
+        if options[-1].endswith('codecs'):
+            logging.debug("Is not MPlayer2")
+            self.is_mplayer2 = False
+            options = options[3:len(options)-4]
+        else:
+            logging.debug("Is MPlayer2")
+            self.is_mplayer2 = True
+            options = options[3:len(options)-3]
 
         for line in options:
             s = line.split()
-            print s
             opt = s[0].split(":") # take care of option:suboption
             if opt[0] in self.__opts:
                 continue
@@ -686,6 +693,9 @@ class MediaContext(object):
         self.is_video = False
         self.args = [MPlayerContext().path]
 
+        # nothing has to do
+        if not path: return
+        
         self.__fetch_thread = None
         self.__subtitle_keys = ["ID_SUBTITLE_ID", "ID_FILE_SUB_ID",       "ID_VOBSUB_ID",
                                                   "ID_FILE_SUB_FILENAME", "ID_VOBSUB_FILENAME"]

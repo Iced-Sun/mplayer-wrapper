@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-07-19 22:58:31 by subi>
+# Time-stamp: <2012-07-19 23:13:46 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -141,17 +141,17 @@ class VideoExpander(object):
     little messy:
              aspect_scale" = X:Y" / 384:288
              vertical_scale" = Y"/288
-             fontX" = ScaleX * vertical_scale" / aspect_scale"
-                    = fontX
-             fontY" = ScaleY * vertical_scale / aspect_scale"       (*)
-                    = fontY / (Y"/Y)
+             fontX" = ScaleX * vertical_scale" / aspect_scale      (*)
+                    = fontX * (Y"/Y)
+             fontY" = ScaleY * vertical_scale" / aspect_scale"
+                    = fontY
     Clearly the subtitle is horizontally stretched (note (*), which is fixed in
     mplayer). Of course you should let ass-font-scale *= aspect_scale" if fixed
     font size in physical screen is required.
         
     So, what we need are:
     1. do expanding
-    2. fix stretched font (simply let ScaleY = Y"/Y )
+    2. fix stretched font (simply let ScaleX = Y/Y" )
     3. choose an appropriate scale of font
         
     We also want to place the subtitle as close to the picture as possible
@@ -222,7 +222,7 @@ class VideoExpander(object):
                 margin = int(self.__ass_margin_scale * media.frame.height)
                 args.extend("-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(margin).split())
                 if MPlayerContext().is_mplayer2:
-                    args.extend("-ass-force-style ScaleY={0}".format(vertical_ratio).split())
+                    args.extend("-ass-force-style ScaleX={0}".format(1.0/vertical_ratio).split())
                 
             args.extend("-ass -ass-font-scale {0}".format(self.__ass_scale * aspect_scale).split());
         else:

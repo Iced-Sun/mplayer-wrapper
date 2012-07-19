@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-07-19 23:13:46 by subi>
+# Time-stamp: <2012-07-20 01:03:09 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -86,13 +86,13 @@ class Fifo(object):
         else:
             import tempfile
             self.__tmpdir = tempfile.mkdtemp()
-            self.__path = os.path.join(self.__tmpdir, "mplayer_fifo")
-            self.args = "-input file={0}".format(self.__path).split()
-            os.mkfifo(self.__path)
+            self.path = os.path.join(self.__tmpdir, "mplayer_fifo")
+            self.args = "-input file={0}".format(self.path).split()
+            os.mkfifo(self.path)
 
     def __del__(self):
         if self.args:
-            os.unlink(self.__path)
+            os.unlink(self.path)
             os.rmdir(self.__tmpdir)
 
 class VideoExpander(object):
@@ -192,11 +192,10 @@ class VideoExpander(object):
 
         # ass font scale:
         if self.__use_ass:
-            # recall that ass font is rendered in a 384x288 canvas; as we
-            # change the height, we use the width
             self.__ass_scale = 1.5
-            # 1.25 lines of 18-pixels font in screen of height 288
-            self.__ass_margin_scale = self.__ass_scale * 18/288 * 1.25
+            # recall that ass font is rendered in a 384x288 canvas
+            # 1.8 lines of 18-pixels font in screen of height 288
+            self.__ass_margin_scale = self.__ass_scale * 18/288 * 1.8
 
     def expand(self, media):
         """Given a MediaContext, expand the video.
@@ -213,13 +212,14 @@ class VideoExpander(object):
             # if the video is too narrow (<4:3), force 4:3
             args.extend("-vf-pre dsize=4/3".split())
         elif self.__use_ass:
-            # Y"/Y = X:Y / X:Y", i.e. vertical_ratio = DAR / expanded_DAR
-            vertical_ratio = 1.0 + 2 * self.__ass_margin_scale
             aspect_scale = media.DAR / Fraction(4,3)
-            
-            if media.DAR / vertical_ratio > screen_aspect:
-                aspect_scale = aspect_scale / vertical_ratio
-                margin = int(self.__ass_margin_scale * media.frame.height)
+            # Y"/Y = X:Y / X:Y", i.e. vertical_ratio = DAR / expanded_DAR
+            vertical_ratio = min(1.0 + 2 * self.__ass_margin_scale, media.DAR / screen_aspect)
+            ass_margin_scale = (vertical_ratio - 1.0) / 2
+
+            if ass_margin_scale > 0:
+                aspect_scale /= vertical_ratio
+                margin = int(ass_margin_scale * media.frame.height)
                 args.extend("-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(margin).split())
                 if MPlayerContext().is_mplayer2:
                     args.extend("-ass-force-style ScaleX={0}".format(1.0/vertical_ratio).split())

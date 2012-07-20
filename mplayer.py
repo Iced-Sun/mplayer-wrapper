@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-07-20 01:03:09 by subi>
+# Time-stamp: <2012-07-20 10:27:34 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -759,11 +759,13 @@ class MediaContext(object):
         # Aspect Ratios and Frame Sizes
         # reference: http://www.mir.com/DMG/aspect.html
         self.frame = Dimension(info["ID_VIDEO_WIDTH"], info["ID_VIDEO_HEIGHT"])
-        if "ID_VIDEO_ASPECT" in info:
+        self.DAR = self.frame.aspect
+        self.SAR = 1
+        if "ID_VIDEO_ASPECT" in info and float(info["ID_VIDEO_ASPECT"]) != 0:
+            # Display Aspect Ratio: 4:3 or 16:9
             self.DAR = Fraction(info["ID_VIDEO_ASPECT"]).limit_denominator(10)
-        else:
-            self.DAR = self.frame.aspect
-        self.SAR = (self.DAR / self.frame.aspect).limit_denominator(82)
+            # Sample/Pixel Aspect Ratio: 
+            self.SAR = (self.DAR / self.frame.aspect).limit_denominator(82)
 
         # Unique (hopefully) hash for shooter subtitle search
         sz = os.path.getsize(self.fullpath)

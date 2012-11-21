@@ -34,11 +34,11 @@ Python版额外支持以下格式：
 ** 使用
 所有应用均支持--debug和--dry-run选项。
 *** mplayer
-将文件另存为或软链接至mplayer/mplayer.py，所有参数都会转发给真正的mplayer。
+将mplayer.py另存为或软链接至mplayer/mplayer.py，所有参数都会转发给真正的mplayer。
 *** midentify
-将文件另存为或软链接至midentify，所有参数都会转发给真正的mplayer。用于查看媒体信息。
+将mplayer.py另存为或软链接至midentify，所有参数都会转发给真正的mplayer。用于查看媒体信息。
 *** mfetch
-将文件另存为或软链接至mfetch。
+将mplayer.py另存为或软链接至mfetch。
 
 mfetch <files> --savedir=<dir>
 

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-21 15:36:44 by subi>
+# Time-stamp: <2012-11-21 16:30:24 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -192,8 +192,8 @@ class Fetcher(Application):
                     filehash = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
             else:
                 filehash = ';;;'
-                
-            self.fetcher.fetch(filepath,filehash,self,self.savedir)
+
+            self.fetcher.fetch(filepath,filehash,self,self.savedir,self.dry_run)
             
 class MPlayer(object):
     last_timestamp = 0.0
@@ -626,7 +626,7 @@ def parse_shooter_package(fileobj):
 class SubFetcher(object):
     subtitles = []
     
-    def fetch(self, filepath, filehash, app, save_dir=None):
+    def fetch(self, filepath, filehash, app, save_dir=None, dry_run=False):
         # wait for mplayer to settle up
         time.sleep(3)
 
@@ -639,6 +639,10 @@ class SubFetcher(object):
                 time.sleep(t)
 
                 self.__build_req(filepath, filehash)
+
+                if dry_run:
+                    break
+
                 response = urllib2.urlopen(self.__req)
                 self.subtitles = parse_shooter_package(response)
                 response.close()

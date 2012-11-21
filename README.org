@@ -1,16 +1,18 @@
 * MPlayer wrapper
 mplayer-wrapper是MPlayer的一个命令行前端，尽可能保证与原有的mplayer命令行界面保持一致。
 
-目前有两个版本：Bash和Python。Bash版不会再改动了；Python版还有一些功能没实现，推荐Python版。
+目前有两个版本：Bash和Python。Bash版不再改动；Python版还有一些功能没实现，推荐Python版。
 
 ** 功能
 *** 视频填充
-对视频的顶端和底端用黑边进行填充，使得字幕和OSD能够显示在黑边上（而不是覆盖在画面上，[[http://gosubi.me/adow/2010/02/mplayer-reloaded/][查看截图]]）。
+对视频的顶端和底端用黑边进行填充，使得字幕和OSD显示在黑边上（而非覆盖在画面上，[[http://gosubi.me/adow/2010/02/mplayer-reloaded/][查看截图]]）。
 
 通过mplayer的-vf expand或-ass-use-margins实现（默认使用ass）。
 
 *** 字体大小和位置自适应
-在同一屏幕上，在不同大小的视频中，字幕显示的字体大小基本不变（默认情况下，字体大小正比于视频大小）；同时该字体大小与屏幕大小成正比。
+默认情况下，mplayer播放时的字体大小正比于视频分辨率，导致高分辨率视频的字体太大而低分辨率视频的字体太小。
+
+mplayer-wrapper将使得在字体大小无关于视频分辨率；但该字体大小与屏幕大小成正比。
 
 另外，字幕将尽可能的距离画面不太远。
 
@@ -29,3 +31,17 @@ Python版额外支持以下格式：
 
 *** 记录播放位置（Python版未实现）
 记录视频退出时的播放位置，从而在下次播放时从结束处继续播放（只有视频处于时间轴100秒之后并且在时间轴95%之前，才会在退出时记录）。
+** 使用
+所有应用均支持--debug和--dry-run选项。
+*** mplayer
+将文件另存为或软链接至mplayer/mplayer.py，所有参数都会转发给真正的mplayer。
+*** midentify
+将文件另存为或软链接至midentify，所有参数都会转发给真正的mplayer。用于查看媒体信息。
+*** mfetch
+将文件另存为或软链接至mfetch。
+
+mfetch <files> --savedir=<dir>
+
+默认将字幕存至视频文件所在目录。
+
+另外，所有字幕文件都将转码为UTF-8。

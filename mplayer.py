@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-21 16:30:24 by subi>
+# Time-stamp: <2012-11-25 18:11:16 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -35,6 +35,7 @@ from fractions import Fraction
 class AppFactory(object):
     def __init__(self,args):
         name = os.path.basename(args.pop(0))
+
         if 'mplayer' in name:
             self.app = Player(args)
         elif 'mfetch' in name:
@@ -43,7 +44,6 @@ class AppFactory(object):
             self.app = Identifier(args)
         else:
             self.app = Application(args)
-    def run(self):
         self.app.run()
     
 class Application(object):
@@ -181,6 +181,9 @@ class Fetcher(Application):
             else:
                 self.files += [arg]
     def run(self):
+        if not self.files:
+            print '请指定需要下载字幕的视频文件'
+            
         for f in self.files:
             if not os.path.exists(f):
                 continue
@@ -841,5 +844,5 @@ if __name__ == "__main__":
     else:    
         logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
         args = sys.argv[:]
-        AppFactory(args).run()
+        AppFactory(args)
 

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-25 18:11:16 by subi>
+# Time-stamp: <2012-11-25 18:37:55 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -69,7 +69,7 @@ class Fifo(object):
     def __init__(self):
         import tempfile
         self.__tmpdir = tempfile.mkdtemp()
-        self.path = os.path.join(self.__tmpdir, "mplayer_fifo")
+        self.path = os.path.join(self.__tmpdir, 'mplayer_fifo')
         os.mkfifo(self.path)
 
     def __del__(self):
@@ -106,12 +106,12 @@ class Player(Application):
 
     def send(self, cmd):
         if self.mplayer.has_active_instance():
-            logging.debug("Sending command \"{0}\" to {1}...".format(cmd, self.fifo.path))
-            fifo = open(self.fifo.path,"w")
+            logging.debug('Sending command "{0}" to {1}...'.format(cmd, self.fifo.path))
+            fifo = open(self.fifo.path,'w')
             fifo.write(cmd+'\n')
             fifo.close()
         else:
-            logging.debug("Command \"{0}\" discarded.".format(cmd))
+            logging.debug('Command "{0}" discarded.'.format(cmd))
             
     def run(self):
         files = generate_filelist(self.files)
@@ -205,28 +205,28 @@ class MPlayer(object):
     def probe(self, filename):
         info = {}
         for l in self.identify([filename]):
-            a = l.partition("=")
+            a = l.partition('=')
             if a[0] in info:
                 info[a[0]] = [info[a[0]]] + [a[2]]
             else:
                 info[a[0]] = a[2]
 
         ret = {}
-        if "ID_FILENAME" in info:
-            ret['filename'] = info["ID_FILENAME"]
+        if 'ID_FILENAME' in info:
+            ret['filename'] = info['ID_FILENAME']
             ret['fullpath'] = os.path.abspath(ret['filename'])
-            ret['seekable'] = (info["ID_SEEKABLE"] == "1")
-            ret['video'] = True if "ID_VIDEO_ID" in info else False
+            ret['seekable'] = (info['ID_SEEKABLE'] == '1')
+            ret['video'] = True if 'ID_VIDEO_ID' in info else False
         
             if ret['video']:
                 # Aspect Ratios and Frame Sizes
                 # reference: http://www.mir.com/DMG/aspect.html
-                ret['frame'] = Dimension(info["ID_VIDEO_WIDTH"], info["ID_VIDEO_HEIGHT"])
+                ret['frame'] = Dimension(info['ID_VIDEO_WIDTH'], info['ID_VIDEO_HEIGHT'])
                 ret['DAR'] = ret['frame'].aspect
                 ret['SAR'] = 1
-                if "ID_VIDEO_ASPECT" in info and float(info["ID_VIDEO_ASPECT"]) != 0:
+                if 'ID_VIDEO_ASPECT' in info and float(info['ID_VIDEO_ASPECT']) != 0:
                     # Display Aspect Ratio: 4:3 or 16:9
-                    ret['DAR'] = Fraction(info["ID_VIDEO_ASPECT"]).limit_denominator(10)
+                    ret['DAR'] = Fraction(info['ID_VIDEO_ASPECT']).limit_denominator(10)
                     # Sample/Pixel Aspect Ratio: 
                     ret['SAR'] = (ret['DAR'] / ret['frame'].aspect).limit_denominator(82)
 
@@ -239,21 +239,21 @@ class MPlayer(object):
                     ret['hash'] = ';;;'
 
                 ret['subtitles'] = []
-                if "ID_SUBTITLE_ID" in info:
+                if 'ID_SUBTITLE_ID' in info:
                     ret['subtitles'] += [('Embedded Text', '<Embedded Text>')]
-                if "ID_FILE_SUB_ID" in info:
+                if 'ID_FILE_SUB_ID' in info:
                     ret['subtitles'] += [('External Text', info['ID_FILE_SUB_FILENAME'])]
-                if "ID_VOBSUB_ID" in info:
+                if 'ID_VOBSUB_ID' in info:
                     ret['subtitles'] += [('External Vobsub', info['ID_VOBSUB_FILENAME'])]
 
-        items = ["\n"
-                 "  Fullpath:         {0}\n"
-                 "  Seekable:         {1}\n"
-                 "  Video:            {2}\n".format(ret['fullpath'], ret['seekable'], ret['video'])]
+        items = ['\n'
+                 '  Fullpath:         {0}\n'
+                 '  Seekable:         {1}\n'
+                 '  Video:            {2}\n'.format(ret['fullpath'], ret['seekable'], ret['video'])]
         if ret['video']:
-            items.append("    Dimension:      {0} [SAR {1} DAR {2}]\n"
-                         "    Hash:           {3}\n"
-                         .format("{0.width}x{0.height}".format(ret['frame']),
+            items.append('    Dimension:      {0} [SAR {1} DAR {2}]\n'
+                         '    Hash:           {3}\n'
+                         .format('{0.width}x{0.height}'.format(ret['frame']),
                                  '{0.numerator}:{0.denominator}'.format(ret['SAR']),
                                  '{0.numerator}:{0.denominator}'.format(ret['DAR']),
                                  ret['hash']))
@@ -269,7 +269,7 @@ class MPlayer(object):
         
     def identify(self, args):
         args = [self.exe_path] + '-vo null -ao null -frames 0 -identify'.split() + args
-        return [l for l in subprocess.check_output(args).splitlines() if l.startswith("ID_")]
+        return [l for l in subprocess.check_output(args).splitlines() if l.startswith('ID_')]
 
     def run(self, args, dry_run=False):
         args = [self.exe_path] + args
@@ -288,20 +288,20 @@ class MPlayer(object):
                 self.__ass = False
             else:
                 libass_path = None
-                for l in subprocess.check_output(["ldd",self.exe_path]).splitlines():
-                    if "libass" in l:
+                for l in subprocess.check_output(['ldd',self.exe_path]).splitlines():
+                    if 'libass' in l:
                         libass_path = l.split()[2]
                 if not libass_path:
                     self.__ass = False
                 else:
-                    if not "libfontconfig" in subprocess.check_output(["ldd",libass_path]):
+                    if not 'libfontconfig' in subprocess.check_output(['ldd',libass_path]):
                         self.__ass = False
         return self.__ass
     
     def is_mplayer2(self):
         if self.__mplayer2 == None:
             if 'MPlayer2' in subprocess.check_output([self.exe_path]).splitlines()[0]:
-                logging.debug("Is a MPlayer2 fork.")
+                logging.debug('Is a MPlayer2 fork.')
                 self.__mplayer2 = True
             else:
                 self.__mplayer2 = False
@@ -319,19 +319,19 @@ class MPlayer(object):
 
     def __init__(self):
         self.exe_path = None
-        for p in ["/opt/bin/mplayer","/usr/local/bin/mplayer","/usr/bin/mplayer"]:
+        for p in ['/opt/bin/mplayer','/usr/local/bin/mplayer','/usr/bin/mplayer']:
             if os.access(p, os.X_OK):
                 self.exe_path = p
                 break
         if not self.exe_path:
-            raise RuntimeError,"Cannot find a mplayer binary."
+            raise RuntimeError,'Cannot find a mplayer binary.'
 
         self.__mplayer2 = None
         self.__ass = None
         self.__opts = {}
 
     def __gen_opts(self):
-        options = subprocess.Popen([self.exe_path, "-list-options"], stdout=subprocess.PIPE).communicate()[0].splitlines()
+        options = subprocess.Popen([self.exe_path, '-list-options'], stdout=subprocess.PIPE).communicate()[0].splitlines()
         if self.is_mplayer2():
             options = options[3:len(options)-3]
         else:
@@ -339,18 +339,18 @@ class MPlayer(object):
 
         for line in options:
             s = line.split()
-            opt = s[0].split(":") # take care of option:suboption
+            opt = s[0].split(':') # take care of option:suboption
             if opt[0] in self.__opts:
                 continue
-            self.__opts[opt[0]] = (2 if len(opt)==2 or s[1]!="Flag" else 1)
+            self.__opts[opt[0]] = (2 if len(opt)==2 or s[1]!='Flag' else 1)
 
         # handle vf* af*:
         # mplayer reports option name as vf*, which is a family of options.
         del self.__opts['af*']
         del self.__opts['vf*']
-        for extra in ["af","af-adv","af-add","af-pre","af-del","vf","vf-add","vf-pre","vf-del"]:
+        for extra in ['af','af-adv','af-add','af-pre','af-del','vf','vf-add','vf-pre','vf-del']:
             self.__opts[extra] = 2
-        for extra in ["af-clr","vf-clr"]:
+        for extra in ['af-clr','vf-clr']:
             self.__opts[extra] = 1
 
     def __tee(self):
@@ -396,8 +396,8 @@ class MPlayer(object):
             f.write(l)
         f.flush()
 
-        logging.debug("Last timestamp: {0}".format(self.last_timestamp))
-        logging.debug("Last exit status: {0}".format(self.last_exit_status))
+        logging.debug('Last timestamp: {0}'.format(self.last_timestamp))
+        logging.debug('Last exit status: {0}'.format(self.last_exit_status))
         self.__process = None
 
 def which(cmd):
@@ -408,19 +408,19 @@ def which(cmd):
     if pdir:
         return exefy(cmd)
     else:
-        for path in os.environ["PATH"].split(os.pathsep):
+        for path in os.environ['PATH'].split(os.pathsep):
             fullpath = exefy(os.path.join(path,cmd))
             if fullpath:
                 return fullpath
     return None
 
 def check_screen_dim():
-    """Select the maximal available screen dimension.
-    """
+    '''Select the maximal available screen dimension.
+    '''
     dim = Dimension()
-    if which("xrandr"):
-        for l in subprocess.check_output(["xrandr"]).splitlines():
-            if l.startswith("*"):
+    if which('xrandr'):
+        for l in subprocess.check_output(['xrandr']).splitlines():
+            if l.startswith('*'):
                 # xrandr 1.1: select the first occurrence
                 dim = Dimension(l.split()[1], l.split()[3])
                 break
@@ -428,7 +428,6 @@ def check_screen_dim():
                 d = l.split()[0].split('x')
                 if d[0] > dim.width:
                     dim = Dimension(d[0],d[1])
-                    
     return dim
 
 class Dimension(object):
@@ -525,12 +524,12 @@ def expand_video(media, use_ass=True, mplayer2=False):
     screen_aspect = check_screen_dim().aspect
 
     # basic options
-    args = "-subfont-autoscale {0} -subfont-osd-scale {1}".format(scaling_mode, osd_scale).split()
+    args = '-subfont-autoscale {0} -subfont-osd-scale {1}'.format(scaling_mode, osd_scale).split()
 
     # do expansion
     if media['DAR'] < Fraction(4,3):
         # if the video is too narrow (<4:3), force 4:3
-        args.extend("-vf-pre dsize=4/3".split())
+        args.extend('-vf-pre dsize=4/3'.split())
     elif use_ass:
         aspect_scale = media['DAR'] / Fraction(4,3)
         # Y"/Y = X:Y / X:Y", i.e. vertical_ratio = DAR / expanded_DAR
@@ -540,13 +539,13 @@ def expand_video(media, use_ass=True, mplayer2=False):
         if ass_margin_scale > 0:
             aspect_scale /= vertical_ratio
             margin = int(ass_margin_scale * media['frame'].height)
-            args.extend("-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}".format(margin).split())
+            args.extend('-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}'.format(margin).split())
             if mplayer2:
-                args.extend("-ass-force-style ScaleX={0}".format(1.0/vertical_ratio).split())
+                args.extend('-ass-force-style ScaleX={0}'.format(1.0/vertical_ratio).split())
                 
-        args.extend("-ass -ass-font-scale {0}".format(ass_scale * aspect_scale).split());
+        args.extend('-ass -ass-font-scale {0}'.format(ass_scale * aspect_scale).split());
     else:
-        args.extend("-subpos 98 -subfont-text-scale {0} -vf-pre expand={1}::::1:{2}"
+        args.extend('-subpos 98 -subfont-text-scale {0} -vf-pre expand={1}::::1:{2}'
                     .format(text_scale, media['frame'].width, screen_aspect).split())
 
     return args
@@ -560,16 +559,16 @@ def parse_shooter_package(fileobj):
 
     # read contents
     c = f.read(1)
-    package_count = struct.unpack("!b", c)[0]
+    package_count = struct.unpack('!b', c)[0]
 
-    logging.debug("{0} subtitle packages found".format(package_count))
+    logging.debug('{0} subtitle packages found'.format(package_count))
 
     for i in range(package_count):
         c = f.read(8)
-        package_length, desc_length = struct.unpack("!II", c)
-        description = f.read(desc_length).decode("UTF-8")
+        package_length, desc_length = struct.unpack('!II', c)
+        description = f.read(desc_length).decode('UTF-8')
         if 'delay' in description:
-            sub_delay = float(description.partition("=")[2]) / 1000
+            sub_delay = float(description.partition('=')[2]) / 1000
         else:
             sub_delay = 0
         if not description:
@@ -577,23 +576,23 @@ def parse_shooter_package(fileobj):
         else:
             description = ' ({0})'.format(description)
 
-        logging.debug("Length of current package in bytes: {0}".format(package_length))
+        logging.debug('Length of current package in bytes: {0}'.format(package_length))
 
         c = f.read(5)
-        package_length, file_count = struct.unpack("!IB", c)
+        package_length, file_count = struct.unpack('!IB', c)
             
-        logging.debug("{0} subtitles in current package.{1}".format(file_count,description))
+        logging.debug('{0} subtitles in current package.{1}'.format(file_count,description))
 
         for j in range(file_count):
             c = f.read(8)
-            pack_len, ext_len = struct.unpack("!II", c)
+            pack_len, ext_len = struct.unpack('!II', c)
             ext = f.read(ext_len)
             logging.debug(' subtitle format is: {0}'.format(ext))
 
             c = f.read(4)
-            file_len = struct.unpack("!I", c)[0]
+            file_len = struct.unpack('!I', c)[0]
             sub = f.read(file_len)
-            if sub.startswith("\x1f\x8b"):
+            if sub.startswith('\x1f\x8b'):
                 import gzip
                 from cStringIO import StringIO
                 sub = gzip.GzipFile(fileobj=StringIO(sub)).read()
@@ -623,7 +622,7 @@ def parse_shooter_package(fileobj):
     for sub in subtitles:
         sub['content'] = utf8lize(sub['content'])
     
-    logging.debug("{0} subtitle(s) parsed.".format(len(subtitles)))
+    logging.debug('{0} subtitle(s) parsed.'.format(len(subtitles)))
     return subtitles
         
 class SubFetcher(object):
@@ -671,17 +670,17 @@ class SubFetcher(object):
                 logging.info('Saving the subtitle as {0}'.format(path))
                 with open(path,'wb') as f:
                     f.write(s['content'])
-                app.send("sub_load \"{0}\"".format(path))
-                app.send("sub_delay \"{0}\"".format(s['delay']))
-            app.send("sub_file 0")
+                app.send('sub_load "{0}"'.format(path))
+                app.send('sub_delay "{0}"'.format(s['delay']))
+            app.send('sub_file 0')
         else:
-            logging.info("Failed to fetch subtitles.")
-            app.send("osd_show_text \"查询字幕失败.\" 3000")
+            logging.info('Failed to fetch subtitles.')
+            app.send('osd_show_text "查询字幕失败." 3000')
     
     def __init__(self):
         import httplib
-        self.__schemas = ["http", "https"] if hasattr(httplib, 'HTTPS') else ["http"]
-        self.__servers = ["www", "splayer", "svplayer"] + ["splayer"+str(i) for i in range(1,13)]
+        self.__schemas = ['http', 'https'] if hasattr(httplib, 'HTTPS') else ['http']
+        self.__servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
 
         self.__req = None
         self.__tries = [0, 10, 30, 60, 120]
@@ -699,28 +698,28 @@ class SubFetcher(object):
         self.__vhash = hashlib.md5(vhash_base).hexdigest()
 
         import random
-        boundary = "-"*28 + "{0:x}".format(random.getrandbits(48))
+        boundary = '-'*28 + '{0:x}'.format(random.getrandbits(48))
 
-        url = "{0}://{1}.shooter.cn/api/subapi.php".format(random.choice(self.__schemas),
+        url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(self.__schemas),
                                                            random.choice(self.__servers))
 
         header = []
-        header.append(["User-Agent", "SPlayer Build {0}".format(self.__rev)])
-        header.append(["Content-Type", "multipart/form-data; boundary={0}".format(boundary)])
+        header.append(['User-Agent', 'SPlayer Build {0}'.format(self.__rev)])
+        header.append(['Content-Type', 'multipart/form-data; boundary={0}'.format(boundary)])
 
         items = []
-        items.append(["filehash", self.__filehash])
-        items.append(["pathinfo", self.__pathinfo])
-        items.append(["vhash", self.__vhash])
+        items.append(['filehash', self.__filehash])
+        items.append(['pathinfo', self.__pathinfo])
+        items.append(['vhash', self.__vhash])
         
-        data = ''.join(["--{0}\n"
-                        "Content-Disposition: form-data; name=\"{1}\"\n\n"
-                        "{2}\n".format(boundary, d[0], d[1]) for d in items]
-                       + ["--" + boundary + "--"])
+        data = ''.join(['--{0}\n'
+                        'Content-Disposition: form-data; name="{1}"\n\n'
+                        '{2}\n'.format(boundary, d[0], d[1]) for d in items]
+                       + ['--' + boundary + '--'])
 
-        logging.debug("Querying server {0} with\n"
-                      "{1}\n"
-                      "{2}\n".format(url,header,data))
+        logging.debug('Querying server {0} with\n'
+                      '{1}\n'
+                      '{2}\n'.format(url,header,data))
 
         self.__req = urllib2.Request(url)
         for h in header:
@@ -730,59 +729,59 @@ class SubFetcher(object):
 def utf8lize(s):
     def guess_enc(s):
         # http://www.w3.org/International/questions/qa-forms-utf-8
-        if len("".join(re.split("(?:"+"|".join(utf8)+")+",s))) < 20:
-            return "utf8"
-        elif len("".join(re.split("(?:"+"|".join(ascii+gbk)+")+",s))) < 20:
-            return "gbk"
-        elif len("".join(re.split("(?:"+"|".join(ascii+big5)+")+",s))) < 20:
-            return "big5"
+        if len(''.join(re.split('(?:'+'|'.join(utf8)+')+',s))) < 20:
+            return 'utf8'
+        elif len(''.join(re.split('(?:'+'|'.join(ascii+gbk)+')+',s))) < 20:
+            return 'gbk'
+        elif len(''.join(re.split('(?:'+'|'.join(ascii+big5)+')+',s))) < 20:
+            return 'big5'
         else:
-            return "unknown"
+            return 'unknown'
     def guess_enc1(s):
-        if len("".join(re.split("(?:"+"|".join(utf8)+")+",s))) < 20:
+        if len(''.join(re.split('(?:'+'|'.join(utf8)+')+',s))) < 20:
             return "utf8"
         # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
-        l = len(re.findall("[\xA1-\xFE][\x40-\x7E]",s))
-        h = len(re.findall("[\xA1-\xFE][\xA1-\xFE]",s))
+        l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',s))
+        h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',s))
         if l == 0:
-            return "gb2312"
+            return 'gb2312'
         elif float(l)/float(h) < 1.0/4.0:
-            return "gbk"
+            return 'gbk'
         else:
-            return "big5"
+            return 'big5'
             
-    ascii = ["[\x09\x0A\x0D\x20-\x7E]"]
+    ascii = ['[\x09\x0A\x0D\x20-\x7E]']
 
     gbk = []
-    gbk.append("[\xA1-\xA9][\xA1-\xFE]") # Level GBK/1
-    gbk.append("[\xB0-\xF7][\xA1-\xFE]") # Level GBK/2
-    gbk.append("[\x81-\xA0][\x40-\x7E\x80-\xFE]") # Level GBK/3
-    gbk.append("[\xAA-\xFE][\x40-\x7E\x80-\xA0]") # Level GBK/4
-    gbk.append("[\xA8-\xA9][\x40-\x7E\x80-\xA0]") # Level GBK/5
+    gbk.append('[\xA1-\xA9][\xA1-\xFE]') # Level GBK/1
+    gbk.append('[\xB0-\xF7][\xA1-\xFE]') # Level GBK/2
+    gbk.append('[\x81-\xA0][\x40-\x7E\x80-\xFE]') # Level GBK/3
+    gbk.append('[\xAA-\xFE][\x40-\x7E\x80-\xA0]') # Level GBK/4
+    gbk.append('[\xA8-\xA9][\x40-\x7E\x80-\xA0]') # Level GBK/5
 
     big5 = []
-    big5.append("[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]") # Special symbols
-    big5.append("\xA3[\xC0-\xFE]") # Reserved, not for user-defined characters
-    big5.append("[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]") # Frequently used characters
-    big5.append("\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]") # Reserved for user-defined characters
-    big5.append("[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]") # Less frequently used characters
-    big5.append("\xF9[\xD6-\xFE]|[\xFA-\xFE][\x40-\x7E\xA1-\xFE]") # Reserved for user-defined characters
+    big5.append('[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]') # Special symbols
+    big5.append('\xA3[\xC0-\xFE]') # Reserved, not for user-defined characters
+    big5.append('[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]') # Frequently used characters
+    big5.append('\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]') # Reserved for user-defined characters
+    big5.append('[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]') # Less frequently used characters
+    big5.append('\xF9[\xD6-\xFE]|[\xFA-\xFE][\x40-\x7E\xA1-\xFE]') # Reserved for user-defined characters
 
     utf8 = []
-    utf8.append("[\x09\x0A\x0D\x20-\x7E]") # ASCII
-    utf8.append("[\xC2-\xDF][\x80-\xBF]") # non-overlong 2-byte
-    utf8.append("\xE0[\xA0-\xBF][\x80-\xBF]") # excluding overlongs
-    utf8.append("[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}") # straight 3-byte
-    utf8.append("\xED[\x80-\x9F][\x80-\xBF]") # excluding surrogates
-    utf8.append("\xF0[\x90-\xBF][\x80-\xBF]{2}") # planes 1-3
-    utf8.append("[\xF1-\xF3][\x80-\xBF]{3}") # planes 4-15
-    utf8.append("\xF4[\x80-\x8F][\x80-\xBF]{2}") # plane 16
+    utf8.append('[\x09\x0A\x0D\x20-\x7E]') # ASCII
+    utf8.append('[\xC2-\xDF][\x80-\xBF]') # non-overlong 2-byte
+    utf8.append('\xE0[\xA0-\xBF][\x80-\xBF]') # excluding overlongs
+    utf8.append('[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}') # straight 3-byte
+    utf8.append('\xED[\x80-\x9F][\x80-\xBF]') # excluding surrogates
+    utf8.append('\xF0[\x90-\xBF][\x80-\xBF]{2}') # planes 1-3
+    utf8.append('[\xF1-\xF3][\x80-\xBF]{3}') # planes 4-15
+    utf8.append('\xF4[\x80-\x8F][\x80-\xBF]{2}') # plane 16
 
     enc = guess_enc(s)
-    if enc in ["utf8","unknown"]:
+    if enc in ['utf8','unknown']:
         return s
     else:
-        return s.decode(enc,'ignore').encode("utf8")
+        return s.decode(enc,'ignore').encode('utf8')
 
 def generate_filelist(files):
     '''Generate a list for continuous playing.
@@ -838,11 +837,11 @@ def generate_filelist(files):
             break
     return results
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     if sys.hexversion < 0x02070000:
         print 'Please run the script with python>=2.7.0'
     else:    
-        logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
+        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
         args = sys.argv[:]
         AppFactory(args)
 

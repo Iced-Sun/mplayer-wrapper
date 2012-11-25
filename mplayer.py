@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-25 18:52:26 by subi>
+# Time-stamp: <2012-11-25 18:56:40 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -32,6 +32,101 @@ import urllib2, struct
 import re
 from fractions import Fraction
 
+# Helper classes and functions
+def which(cmd):
+    def exefy(fullpath):
+        return fullpath if os.access(fullpath, os.X_OK) else None
+
+    pdir,_ = os.path.split(cmd)
+    if pdir:
+        return exefy(cmd)
+    else:
+        for path in os.environ['PATH'].split(os.pathsep):
+            fullpath = exefy(os.path.join(path,cmd))
+            if fullpath:
+                return fullpath
+    return None
+
+def check_screen_dim():
+    '''Select the maximal available screen dimension.
+    '''
+    dim = Dimension()
+    if which('xrandr'):
+        for l in subprocess.check_output(['xrandr']).splitlines():
+            if l.startswith('*'):
+                # xrandr 1.1: select the first occurrence
+                dim = Dimension(l.split()[1], l.split()[3])
+                break
+            elif '*' in l:
+                d = l.split()[0].split('x')
+                if d[0] > dim.width:
+                    dim = Dimension(d[0],d[1])
+    return dim
+
+class Dimension(object):
+    def __init__(self, width = 640, height = 480):
+        self.width = int(width)
+        self.height = int(height)
+        self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
+
+def utf8lize(s):
+    def guess_enc(s):
+        # http://www.w3.org/International/questions/qa-forms-utf-8
+        if len(''.join(re.split('(?:'+'|'.join(utf8)+')+',s))) < 20:
+            return 'utf8'
+        elif len(''.join(re.split('(?:'+'|'.join(ascii+gbk)+')+',s))) < 20:
+            return 'gbk'
+        elif len(''.join(re.split('(?:'+'|'.join(ascii+big5)+')+',s))) < 20:
+            return 'big5'
+        else:
+            return 'unknown'
+    def guess_enc1(s):
+        if len(''.join(re.split('(?:'+'|'.join(utf8)+')+',s))) < 20:
+            return "utf8"
+        # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
+        l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',s))
+        h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',s))
+        if l == 0:
+            return 'gb2312'
+        elif float(l)/float(h) < 1.0/4.0:
+            return 'gbk'
+        else:
+            return 'big5'
+            
+    ascii = ['[\x09\x0A\x0D\x20-\x7E]']
+
+    gbk = []
+    gbk.append('[\xA1-\xA9][\xA1-\xFE]') # Level GBK/1
+    gbk.append('[\xB0-\xF7][\xA1-\xFE]') # Level GBK/2
+    gbk.append('[\x81-\xA0][\x40-\x7E\x80-\xFE]') # Level GBK/3
+    gbk.append('[\xAA-\xFE][\x40-\x7E\x80-\xA0]') # Level GBK/4
+    gbk.append('[\xA8-\xA9][\x40-\x7E\x80-\xA0]') # Level GBK/5
+
+    big5 = []
+    big5.append('[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]') # Special symbols
+    big5.append('\xA3[\xC0-\xFE]') # Reserved, not for user-defined characters
+    big5.append('[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]') # Frequently used characters
+    big5.append('\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]') # Reserved for user-defined characters
+    big5.append('[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]') # Less frequently used characters
+    big5.append('\xF9[\xD6-\xFE]|[\xFA-\xFE][\x40-\x7E\xA1-\xFE]') # Reserved for user-defined characters
+
+    utf8 = []
+    utf8.append('[\x09\x0A\x0D\x20-\x7E]') # ASCII
+    utf8.append('[\xC2-\xDF][\x80-\xBF]') # non-overlong 2-byte
+    utf8.append('\xE0[\xA0-\xBF][\x80-\xBF]') # excluding overlongs
+    utf8.append('[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}') # straight 3-byte
+    utf8.append('\xED[\x80-\x9F][\x80-\xBF]') # excluding surrogates
+    utf8.append('\xF0[\x90-\xBF][\x80-\xBF]{2}') # planes 1-3
+    utf8.append('[\xF1-\xF3][\x80-\xBF]{3}') # planes 4-15
+    utf8.append('\xF4[\x80-\x8F][\x80-\xBF]{2}') # plane 16
+
+    enc = guess_enc(s)
+    if enc in ['utf8','unknown']:
+        return s
+    else:
+        return s.decode(enc,'ignore').encode('utf8')
+
+# Application classes
 class Application(object):
     #    debug = False
     dry_run = False
@@ -391,42 +486,6 @@ class MPlayer(object):
         logging.debug('Last exit status: {0}'.format(self.last_exit_status))
         self.__process = None
 
-def which(cmd):
-    def exefy(fullpath):
-        return fullpath if os.access(fullpath, os.X_OK) else None
-
-    pdir = os.path.split(cmd)[0]
-    if pdir:
-        return exefy(cmd)
-    else:
-        for path in os.environ['PATH'].split(os.pathsep):
-            fullpath = exefy(os.path.join(path,cmd))
-            if fullpath:
-                return fullpath
-    return None
-
-def check_screen_dim():
-    '''Select the maximal available screen dimension.
-    '''
-    dim = Dimension()
-    if which('xrandr'):
-        for l in subprocess.check_output(['xrandr']).splitlines():
-            if l.startswith('*'):
-                # xrandr 1.1: select the first occurrence
-                dim = Dimension(l.split()[1], l.split()[3])
-                break
-            elif '*' in l:
-                d = l.split()[0].split('x')
-                if d[0] > dim.width:
-                    dim = Dimension(d[0],d[1])
-    return dim
-
-class Dimension(object):
-    def __init__(self, width = 640, height = 480):
-        self.width = int(width)
-        self.height = int(height)
-        self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
-
 def expand_video(media, use_ass=True, mplayer2=False):
     '''Video-expanding attaches two black bands to the top and bottom of the
     video. MPlayer can then render OSDs/texts (time display, subtitles, etc.)
@@ -716,63 +775,6 @@ class SubFetcher(object):
         for h in header:
             self.__req.add_header(h[0],h[1])
         self.__req.add_data(data)
-
-def utf8lize(s):
-    def guess_enc(s):
-        # http://www.w3.org/International/questions/qa-forms-utf-8
-        if len(''.join(re.split('(?:'+'|'.join(utf8)+')+',s))) < 20:
-            return 'utf8'
-        elif len(''.join(re.split('(?:'+'|'.join(ascii+gbk)+')+',s))) < 20:
-            return 'gbk'
-        elif len(''.join(re.split('(?:'+'|'.join(ascii+big5)+')+',s))) < 20:
-            return 'big5'
-        else:
-            return 'unknown'
-    def guess_enc1(s):
-        if len(''.join(re.split('(?:'+'|'.join(utf8)+')+',s))) < 20:
-            return "utf8"
-        # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
-        l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',s))
-        h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',s))
-        if l == 0:
-            return 'gb2312'
-        elif float(l)/float(h) < 1.0/4.0:
-            return 'gbk'
-        else:
-            return 'big5'
-            
-    ascii = ['[\x09\x0A\x0D\x20-\x7E]']
-
-    gbk = []
-    gbk.append('[\xA1-\xA9][\xA1-\xFE]') # Level GBK/1
-    gbk.append('[\xB0-\xF7][\xA1-\xFE]') # Level GBK/2
-    gbk.append('[\x81-\xA0][\x40-\x7E\x80-\xFE]') # Level GBK/3
-    gbk.append('[\xAA-\xFE][\x40-\x7E\x80-\xA0]') # Level GBK/4
-    gbk.append('[\xA8-\xA9][\x40-\x7E\x80-\xA0]') # Level GBK/5
-
-    big5 = []
-    big5.append('[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]') # Special symbols
-    big5.append('\xA3[\xC0-\xFE]') # Reserved, not for user-defined characters
-    big5.append('[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]') # Frequently used characters
-    big5.append('\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]') # Reserved for user-defined characters
-    big5.append('[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]') # Less frequently used characters
-    big5.append('\xF9[\xD6-\xFE]|[\xFA-\xFE][\x40-\x7E\xA1-\xFE]') # Reserved for user-defined characters
-
-    utf8 = []
-    utf8.append('[\x09\x0A\x0D\x20-\x7E]') # ASCII
-    utf8.append('[\xC2-\xDF][\x80-\xBF]') # non-overlong 2-byte
-    utf8.append('\xE0[\xA0-\xBF][\x80-\xBF]') # excluding overlongs
-    utf8.append('[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}') # straight 3-byte
-    utf8.append('\xED[\x80-\x9F][\x80-\xBF]') # excluding surrogates
-    utf8.append('\xF0[\x90-\xBF][\x80-\xBF]{2}') # planes 1-3
-    utf8.append('[\xF1-\xF3][\x80-\xBF]{3}') # planes 4-15
-    utf8.append('\xF4[\x80-\x8F][\x80-\xBF]{2}') # plane 16
-
-    enc = guess_enc(s)
-    if enc in ['utf8','unknown']:
-        return s
-    else:
-        return s.decode(enc,'ignore').encode('utf8')
 
 def generate_filelist(files):
     '''Generate a list for continuous playing.

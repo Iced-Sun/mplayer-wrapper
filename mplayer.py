@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-25 18:41:50 by subi>
+# Time-stamp: <2012-11-25 18:52:26 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -53,14 +53,19 @@ class Application(object):
 
 class Fifo(object):
     def __init__(self):
-        import tempfile
-        self.__tmpdir = tempfile.mkdtemp()
-        self.path = os.path.join(self.__tmpdir, 'mplayer_fifo')
+        self.__xdg_runtime_dir = os.environ['XDG_RUNTIME_DIR']
+        if self.__xdg_runtime_dir:
+            self.path = os.path.join(self.__xdg_runtime_dir, 'mplayer.fifo')
+        else:
+            import tempfile
+            self.__tmpdir = tempfile.mkdtemp()
+            self.path = os.path.join(self.__tmpdir, 'mplayer.fifo')
         os.mkfifo(self.path)
 
     def __del__(self):
         os.unlink(self.path)
-        os.rmdir(self.__tmpdir)
+        if not self.__xdg_runtime_dir:
+            os.rmdir(self.__tmpdir)
             
 class Player(Application):
     def __init__(self, args):
@@ -840,4 +845,3 @@ if __name__ == '__main__':
         else:
             app = Application
         app(args).run()
-

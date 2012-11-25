@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-25 18:37:55 by subi>
+# Time-stamp: <2012-11-25 18:41:50 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -32,20 +32,6 @@ import urllib2, struct
 import re
 from fractions import Fraction
 
-class AppFactory(object):
-    def __init__(self,args):
-        name = os.path.basename(args.pop(0))
-
-        if 'mplayer' in name:
-            self.app = Player(args)
-        elif 'mfetch' in name:
-            self.app = Fetcher(args)
-        elif 'midentify' in name:
-            self.app = Identifier(args)
-        else:
-            self.app = Application(args)
-        self.app.run()
-    
 class Application(object):
     #    debug = False
     dry_run = False
@@ -843,5 +829,15 @@ if __name__ == '__main__':
     else:    
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
         args = sys.argv[:]
-        AppFactory(args)
+
+        name = os.path.basename(args.pop(0))
+        if 'mplayer' in name:
+            app = Player
+        elif 'mfetch' in name:
+            app = Fetcher
+        elif 'midentify' in name:
+            app = Identifier
+        else:
+            app = Application
+        app(args).run()
 

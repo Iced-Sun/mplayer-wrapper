@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-25 18:56:40 by subi>
+# Time-stamp: <2012-11-28 09:13:29 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -23,6 +23,8 @@
 # * "not compiled in option"
 # * detect the language in embedded subtitles, which is guaranteed to be utf8
 # * use ffprobe for better(?) metainfo detection?
+# * add heartbeat-cmd: "gnome-screensaver-command -p" "xscreen-saver-command
+#                       -deactivate"
 
 import logging
 import os,sys
@@ -147,6 +149,16 @@ class Application(object):
         pass
 
 class Fifo(object):
+    def send(self, s):
+        if self.__fifo_exist:
+            with open(self.path,'w') as f:
+                f.write(s+'\n')
+        else:
+            logging.info('"{0}" cannot be sent to the unexist {1}.'.format(s,self.path))
+
+    def recv(self):
+        pass
+    
     def __init__(self):
         self.__xdg_runtime_dir = os.environ['XDG_RUNTIME_DIR']
         if self.__xdg_runtime_dir:
@@ -155,10 +167,16 @@ class Fifo(object):
             import tempfile
             self.__tmpdir = tempfile.mkdtemp()
             self.path = os.path.join(self.__tmpdir, 'mplayer.fifo')
-        os.mkfifo(self.path)
 
+        self.__fifo_exist = True
+        try:
+            os.mkfifo(self.path)
+        except OSError:
+            self.__fifo_exist = False
+            
     def __del__(self):
-        os.unlink(self.path)
+        if self.__fifo_exist:
+            os.unlink(self.path)
         if not self.__xdg_runtime_dir:
             os.rmdir(self.__tmpdir)
             
@@ -193,9 +211,7 @@ class Player(Application):
     def send(self, cmd):
         if self.mplayer.has_active_instance():
             logging.debug('Sending command "{0}" to {1}...'.format(cmd, self.fifo.path))
-            fifo = open(self.fifo.path,'w')
-            fifo.write(cmd+'\n')
-            fifo.close()
+            self.fifo.send(cmd)
         else:
             logging.debug('Command "{0}" discarded.'.format(cmd))
             
@@ -582,7 +598,8 @@ def expand_video(media, use_ass=True, mplayer2=False):
         args.extend('-vf-pre dsize=4/3'.split())
     elif use_ass:
         aspect_scale = media['DAR'] / Fraction(4,3)
-        # Y"/Y = X:Y / X:Y", i.e. vertical_ratio = DAR / expanded_DAR
+        # Y"/Y = X:Y / X:Y"
+        # i.e. vertical_ratio = DAR / expanded_DAR
         vertical_ratio = min(1.0 + 2 * ass_margin_scale, media['DAR'] / screen_aspect)
         ass_margin_scale = (vertical_ratio - 1.0) / 2
 

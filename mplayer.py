@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-29 17:59:27 by subi>
+# Time-stamp: <2012-11-29 18:43:57 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -73,7 +73,7 @@ class Dimension(object):
         self.height = int(height)
         self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
 
-def guess_enc(s, whole_string=False, precise=False):
+def guess_enc(s, precise=False):
     ascii = '[\x09\x0A\x0D\x20-\x7E]'
     gbk = ['[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
            '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
@@ -115,18 +115,16 @@ def guess_enc(s, whole_string=False, precise=False):
         pat = '(?:{0})+'.format(pattern)
         standalone_ascii = ''.join(re.split(pat, interpretable))
 
-        print len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(s)-len(interpretable)
         return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(s)-len(interpretable)
 
-    if whole_string:
-        threshold = int(len(s) * .005)
-    else:
-        sample_length = 2048
-        threshold = 10
-        if len(s) > sample_length:
-            s = s[0:sample_length]
+    # filter out ASCII as much as possible
+    s = ''.join(re.split('(?:(?<![\x80-\xFE]){0})+'.format(ascii),s))
+    if len(s)>2048:
+        s = s[0:2048]
+    threshold = int(len(s) * .005)
 
-    # To guess the encoding of a byte string, we count the bytes those cannot be interpreted by the codec.
+    # To guess the encoding of a byte string, we count the bytes those cannot
+    # be interpreted by the codec.
     # http://www.w3.org/International/questions/qa-forms-utf-8
     if count_in_codec(utf8)[2] < threshold:
         return 'utf8'

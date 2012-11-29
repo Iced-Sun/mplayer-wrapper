@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-29 20:00:50 by subi>
+# Time-stamp: <2012-11-29 20:15:51 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -23,8 +23,6 @@
 # * "not compiled in option"
 # * detect the language in embedded subtitles, which is guaranteed to be utf8
 # * use ffprobe for better(?) metainfo detection?
-# * add heartbeat-cmd: "gnome-screensaver-command -p" "xscreen-saver-command
-#                       -deactivate"
 
 import logging
 import os,sys
@@ -646,7 +644,7 @@ def expand_video(media, use_ass=True, mplayer2=False):
 
 def parse_shooter_package(fileobj):
     '''Parse shooter returned package of subtitles.
-    Return subtitles encoded by UTF-8.
+    Return subtitles encoded in UTF-8.
     '''
     subtitles = []
     f = fileobj
@@ -655,33 +653,28 @@ def parse_shooter_package(fileobj):
     c = f.read(1)
     package_count = struct.unpack('!b', c)[0]
 
-    logging.debug('{0} subtitle packages found'.format(package_count))
-
     for i in range(package_count):
+        # note: var '_' is the length of the following bytestream, but is
+        # useless.
         c = f.read(8)
-        package_length, desc_length = struct.unpack('!II', c)
-        description = f.read(desc_length).decode('UTF-8')
-        if 'delay' in description:
-            sub_delay = float(description.partition('=')[2]) / 1000
-        else:
-            sub_delay = 0
+        _,desc_length = struct.unpack('!II', c)
+        description = f.read(desc_length).decode('utf8')
         if not description:
             description = ''
         else:
+            if 'delay' in description:
+                sub_delay = description.partition('=')[2] / 1000.0
+            else:
+                sub_delay = 0
             description = ' ({0})'.format(description)
 
-        logging.debug('Length of current package in bytes: {0}'.format(package_length))
-
         c = f.read(5)
-        package_length, file_count = struct.unpack('!IB', c)
+        _,file_count = struct.unpack('!IB', c)
             
-        logging.debug('{0} subtitles in current package.{1}'.format(file_count,description))
-
         for j in range(file_count):
             c = f.read(8)
-            pack_len, ext_len = struct.unpack('!II', c)
+            _,ext_len = struct.unpack('!II', c)
             ext = f.read(ext_len)
-            logging.debug(' subtitle format is: {0}'.format(ext))
 
             c = f.read(4)
             file_len = struct.unpack('!I', c)[0]
@@ -695,7 +688,8 @@ def parse_shooter_package(fileobj):
                               'delay': sub_delay,
                               'content': sub})
 
-    logging.debug('Filter duplicated subtitles.')
+    logging.debug('{0} subtitle(s) fetched.'.format(len(subtitles)))
+    logging.debug('Filtering duplicated subtitles...')
     dup_tag = [False]*len(subtitles)
     for i in range(len(subtitles)):
         if dup_tag[i]:

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-29 19:11:51 by subi>
+# Time-stamp: <2012-11-29 19:32:56 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -174,11 +174,7 @@ class Application(object):
     def send(self, cmd):
         pass
 
-class ArgsProvider(object):
-    def __init__(self):
-        self.args = []
-        
-class MPlayerFifo(ArgsProvider):
+class MPlayerFifo(object):
     def send(self, s):
         if self.args:
             logging.debug('Sending command "{0}" to {1}...'.format(s, self.__path))
@@ -188,7 +184,7 @@ class MPlayerFifo(ArgsProvider):
             logging.info('"{0}" cannot be sent to the unexist {1}.'.format(s, self.__path))
     
     def __init__(self):
-        super(MPlayerFifo, self).__init__()
+        self.args = []
         
         xdg = os.environ['XDG_RUNTIME_DIR']
         if xdg:
@@ -836,6 +832,7 @@ def generate_filelist(files):
         s = s.decode(loc[1])
         return ''.join([dic.get(c,c) for c in s]).encode(loc[1])
     def split_by_int(s):
+        import re
         return [x for x in re.split('(\d+)', translate(s)) if x != '']
     def make_sort_key(s):
         return [(int(x) if x.isdigit() else x) for x in split_by_int(s)]

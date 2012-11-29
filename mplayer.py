@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-29 18:43:57 by subi>
+# Time-stamp: <2012-11-29 19:11:51 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -174,36 +174,41 @@ class Application(object):
     def send(self, cmd):
         pass
 
-class Fifo(object):
+class ArgsProvider(object):
+    def __init__(self):
+        self.args = []
+        
+class MPlayerFifo(ArgsProvider):
     def send(self, s):
-        if self.__fifo_exist:
-            with open(self.path,'w') as f:
+        if self.args:
+            logging.debug('Sending command "{0}" to {1}...'.format(s, self.__path))
+            with open(self.__path,'w') as f:
                 f.write(s+'\n')
         else:
-            logging.info('"{0}" cannot be sent to the unexist {1}.'.format(s,self.path))
-
-    def recv(self):
-        pass
+            logging.info('"{0}" cannot be sent to the unexist {1}.'.format(s, self.__path))
     
     def __init__(self):
-        self.__xdg_runtime_dir = os.environ['XDG_RUNTIME_DIR']
-        if self.__xdg_runtime_dir:
-            self.path = os.path.join(self.__xdg_runtime_dir, 'mplayer.fifo')
+        super(MPlayerFifo, self).__init__()
+        
+        xdg = os.environ['XDG_RUNTIME_DIR']
+        if xdg:
+            self.__tmpdir = None
+            self.__path = os.path.join(xdg, 'mplayer.fifo')
         else:
             import tempfile
             self.__tmpdir = tempfile.mkdtemp()
-            self.path = os.path.join(self.__tmpdir, 'mplayer.fifo')
+            self.__path = os.path.join(self.__tmpdir, 'mplayer.fifo')
 
-        self.__fifo_exist = True
         try:
-            os.mkfifo(self.path)
-        except OSError:
-            self.__fifo_exist = False
+            os.mkfifo(self.__path)
+            self.args = '-input file={0}'.format(self.__path).split()
+        except OSError, e:
+            logging.info(e)
             
     def __del__(self):
-        if self.__fifo_exist:
-            os.unlink(self.path)
-        if not self.__xdg_runtime_dir:
+        if self.args:
+            os.unlink(self.__path)
+        if self.__tmpdir:
             os.rmdir(self.__tmpdir)
             
 class Player(Application):
@@ -211,7 +216,7 @@ class Player(Application):
         super(Player, self).__init__(args)
 
         self.mplayer = MPlayer()
-        self.fifo = Fifo() if not self.dry_run else None
+        self.fifo = MPlayerFifo() if not self.dry_run else None
 
         while args:
             s = args.pop(0)
@@ -236,7 +241,6 @@ class Player(Application):
 
     def send(self, cmd):
         if self.mplayer.has_active_instance():
-            logging.debug('Sending command "{0}" to {1}...'.format(cmd, self.fifo.path))
             self.fifo.send(cmd)
         else:
             logging.debug('Command "{0}" discarded.'.format(cmd))
@@ -253,7 +257,7 @@ class Player(Application):
                 if m['video']:
                     args += '-subcp utf8'.split()
                     if self.fifo:
-                        args += '-input file={0}'.format(self.fifo.path).split()
+                        args += self.fifo.args
 
                     use_ass = False if '-noass' in self.args or not self.mplayer.support_ass() else True
                     args += expand_video(m, use_ass, self.mplayer.is_mplayer2())

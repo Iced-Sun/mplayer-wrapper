@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-29 14:37:55 by subi>
+# Time-stamp: <2012-11-29 17:59:27 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -31,7 +31,6 @@ import os,sys
 import subprocess, threading, time
 import hashlib
 import urllib2, struct
-import re
 from fractions import Fraction
 
 # Helper classes and functions
@@ -74,57 +73,83 @@ class Dimension(object):
         self.height = int(height)
         self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
 
-def utf8lize(s):
-    def guess_enc(s):
-        # http://www.w3.org/International/questions/qa-forms-utf-8
-        if len(''.join(re.split('(?:'+'|'.join(utf8)+')+',s))) < 20:
-            return 'utf8'
-        elif len(''.join(re.split('(?:'+'|'.join(ascii+gbk)+')+',s))) < 20:
-            return 'gbk'
-        elif len(''.join(re.split('(?:'+'|'.join(ascii+big5)+')+',s))) < 20:
-            return 'big5'
-        else:
-            return 'unknown'
-    def guess_enc1(s):
-        if len(''.join(re.split('(?:'+'|'.join(utf8)+')+',s))) < 20:
-            return "utf8"
+def guess_enc(s, whole_string=False, precise=False):
+    ascii = '[\x09\x0A\x0D\x20-\x7E]'
+    gbk = ['[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
+           '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
+           '[\x81-\xA0][\x40-\x7E\x80-\xFE]',     # Level GBK/3
+           '[\xAA-\xFE][\x40-\x7E\x80-\xA0]',     # Level GBK/4
+           '[\xA8-\xA9][\x40-\x7E\x80-\xA0]']     # Level GBK/5
+    big5 = ['[\xA1-\xA2][\x40-\x7E\xA1-\xFE]',
+            '\xA3[\x40-\x7E\xA1-\xBF]',           # Special symbols
+            '\xA3[\xC0-\xFE]',                    # Reserved, not for user-defined characters
+            '[\xA4-\xC5][\x40-\x7E\xA1-\xFE]',
+            '\xC6[\x40-\x7E]',                    # Frequently used characters
+            '\xC6[\xA1-\xFE]',
+            '[\xC7\xC8][\x40-\x7E\xA1-\xFE]',     # Reserved for user-defined characters
+            '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]',
+            '\xF9[\x40-\x7E\xA1-\xD5]',           # Less frequently used characters
+            '\xF9[\xD6-\xFE]',
+            '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]']    # Reserved for user-defined characters
+    utf8 = ['[\xC2-\xDF][\x80-\xBF]',             # non-overlong 2-byte
+            '\xE0[\xA0-\xBF][\x80-\xBF]',         # excluding overlongs
+            '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}',  # straight 3-byte
+            '\xED[\x80-\x9F][\x80-\xBF]',         # excluding surrogates
+            '\xF0[\x90-\xBF][\x80-\xBF]{2}',      # planes 1-3
+            '[\xF1-\xF3][\x80-\xBF]{3}',          # planes 4-15
+            '\xF4[\x80-\x8F][\x80-\xBF]{2}']      # plane 16
+
+    import re
+    def count_in_codec(pattern):
+        '''This in necessary because ASCII can be standalone or be the low
+        byte of pattern.
+        '''
+        if isinstance(pattern,list):
+            pattern = '|'.join(pattern)
+            
+        # collecting all patterns
+        pat = '({0}|{1})'.format(ascii, pattern)
+        interpretable = ''.join(re.findall(pat, s))
+
+        # collecting standalone ASCII by filtering 'pattern' out
+        pat = '(?:{0})+'.format(pattern)
+        standalone_ascii = ''.join(re.split(pat, interpretable))
+
+        print len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(s)-len(interpretable)
+        return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(s)-len(interpretable)
+
+    if whole_string:
+        threshold = int(len(s) * .005)
+    else:
+        sample_length = 2048
+        threshold = 10
+        if len(s) > sample_length:
+            s = s[0:sample_length]
+
+    # To guess the encoding of a byte string, we count the bytes those cannot be interpreted by the codec.
+    # http://www.w3.org/International/questions/qa-forms-utf-8
+    if count_in_codec(utf8)[2] < threshold:
+        return 'utf8'
+    elif precise:
+        # GB2312 and BIG5 share lots of code points and hence sometimes we need a more precise method.
         # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
         l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',s))
         h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',s))
         if l == 0:
             return 'gb2312'
-        elif float(l)/float(h) < 1.0/4.0:
+        elif float(l)/float(h) < 0.25:
             return 'gbk'
         else:
             return 'big5'
+    elif count_in_codec(gbk)[2] < threshold:
+        # Favor GBK over BIG5. If this not you want, just set precise=True
+        return 'gbk'
+    elif count_in_codec(big5)[2] < threshold:
+        return 'big5'
+    else:
+        return 'unknown'
             
-    ascii = ['[\x09\x0A\x0D\x20-\x7E]']
-
-    gbk = []
-    gbk.append('[\xA1-\xA9][\xA1-\xFE]') # Level GBK/1
-    gbk.append('[\xB0-\xF7][\xA1-\xFE]') # Level GBK/2
-    gbk.append('[\x81-\xA0][\x40-\x7E\x80-\xFE]') # Level GBK/3
-    gbk.append('[\xAA-\xFE][\x40-\x7E\x80-\xA0]') # Level GBK/4
-    gbk.append('[\xA8-\xA9][\x40-\x7E\x80-\xA0]') # Level GBK/5
-
-    big5 = []
-    big5.append('[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]') # Special symbols
-    big5.append('\xA3[\xC0-\xFE]') # Reserved, not for user-defined characters
-    big5.append('[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]') # Frequently used characters
-    big5.append('\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]') # Reserved for user-defined characters
-    big5.append('[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]') # Less frequently used characters
-    big5.append('\xF9[\xD6-\xFE]|[\xFA-\xFE][\x40-\x7E\xA1-\xFE]') # Reserved for user-defined characters
-
-    utf8 = []
-    utf8.append('[\x09\x0A\x0D\x20-\x7E]') # ASCII
-    utf8.append('[\xC2-\xDF][\x80-\xBF]') # non-overlong 2-byte
-    utf8.append('\xE0[\xA0-\xBF][\x80-\xBF]') # excluding overlongs
-    utf8.append('[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}') # straight 3-byte
-    utf8.append('\xED[\x80-\x9F][\x80-\xBF]') # excluding surrogates
-    utf8.append('\xF0[\x90-\xBF][\x80-\xBF]{2}') # planes 1-3
-    utf8.append('[\xF1-\xF3][\x80-\xBF]{3}') # planes 4-15
-    utf8.append('\xF4[\x80-\x8F][\x80-\xBF]{2}') # plane 16
-
+def utf8lize(s):
     enc = guess_enc(s)
     if enc in ['utf8','unknown']:
         return s

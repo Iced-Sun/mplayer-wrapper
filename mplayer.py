@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-29 19:32:56 by subi>
+# Time-stamp: <2012-11-29 20:00:50 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -339,10 +339,11 @@ class MPlayer(object):
             else:
                 info[a[0]] = a[2]
 
-        ret = {}
+        from collections import defaultdict
+        ret = defaultdict(bool)
+        ret['filename'] = filename
+        ret['fullpath'] = os.path.abspath(filename)
         if 'ID_FILENAME' in info:
-            ret['filename'] = info['ID_FILENAME']
-            ret['fullpath'] = os.path.abspath(ret['filename'])
             ret['seekable'] = (info['ID_SEEKABLE'] == '1')
             ret['video'] = True if 'ID_VIDEO_ID' in info else False
         
@@ -851,7 +852,7 @@ def generate_filelist(files):
     files.sort(key=make_sort_key)
     del files[0:files.index(basename)]
 
-    # only one file in the candidate list
+    # not necessary to go further if only one candidate
     if len(files) == 1:
         return [os.path.join(pdir,basename)]
 

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-28 09:13:29 by subi>
+# Time-stamp: <2012-11-29 14:19:39 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -35,18 +35,12 @@ import re
 from fractions import Fraction
 
 # Helper classes and functions
-def which(cmd):
-    def exefy(fullpath):
-        return fullpath if os.access(fullpath, os.X_OK) else None
-
-    pdir,_ = os.path.split(cmd)
-    if pdir:
-        return exefy(cmd)
-    else:
-        for path in os.environ['PATH'].split(os.pathsep):
-            fullpath = exefy(os.path.join(path,cmd))
-            if fullpath:
-                return fullpath
+def which(prog):
+    paths = [''] if os.path.isabs(prog) else os.environ['PATH'].split(os.pathsep)
+    for path in paths:
+        fullpath = os.path.join(path, prog)
+        if os.access(fullpath, os.X_OK):
+            return fullpath
     return None
 
 def check_screen_dim():
@@ -422,7 +416,7 @@ class MPlayer(object):
     def __init__(self):
         self.exe_path = None
         for p in ['/opt/bin/mplayer','/usr/local/bin/mplayer','/usr/bin/mplayer']:
-            if os.access(p, os.X_OK):
+            if which(p):
                 self.exe_path = p
                 break
         if not self.exe_path:

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-29 14:19:39 by subi>
+# Time-stamp: <2012-11-29 14:37:55 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -47,16 +47,25 @@ def check_screen_dim():
     '''Select the maximal available screen dimension.
     '''
     dim = Dimension()
+    dim_updated = False
+    
     if which('xrandr'):
         for l in subprocess.check_output(['xrandr']).splitlines():
-            if l.startswith('*'):
-                # xrandr 1.1: select the first occurrence
-                dim = Dimension(l.split()[1], l.split()[3])
-                break
-            elif '*' in l:
-                d = l.split()[0].split('x')
-                if d[0] > dim.width:
-                    dim = Dimension(d[0],d[1])
+            if l.startswith('*'): # xrandr 1.1
+                dim_updated = True
+                
+                _,w,_,h = l.split()
+                if w > dim.width:
+                    dim = Dimension(w,h)
+            elif '*' in l:        # xrandr 1.2 and above
+                dim_updated = True
+                w,h = l.split()[0].split('x')
+                if w > dim.width:
+                    dim = Dimension(w,h)
+
+    if not dim_updated:
+        logging.info('Cannot find xrandr or unsupported xrandr version. The screen dimension defaults to {0}x{1}.'.format(dim.width, dim.height))
+        
     return dim
 
 class Dimension(object):

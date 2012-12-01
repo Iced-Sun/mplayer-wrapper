@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-01 14:42:41 by subi>
+# Time-stamp: <2012-12-02 01:21:57 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -32,7 +32,7 @@ import urllib2, struct
 from fractions import Fraction
 from collections import defaultdict
 
-# Helper classes and functions
+### Helper classes and functions
 def which(prog):
     paths = [''] if os.path.isabs(prog) else os.environ['PATH'].split(os.pathsep)
     for path in paths:
@@ -153,11 +153,8 @@ def utf8lize(s):
     else:
         return s.decode(enc,'ignore').encode('utf8')
 
-# Application classes
+### Application classes
 class Application(object):
-    args = []
-    files = []
-    bad_args =[]
     def __init__(self, args):
         if '--debug' in args:
             logging.root.setLevel(logging.DEBUG)
@@ -166,10 +163,13 @@ class Application(object):
             logging.root.setLevel(logging.DEBUG)
             args.remove('--dry-run')
             config['dry-run'] = True
+
+class Identifier(Application):
     def run(self):
-        print 'Running an unimplemented app.'
-    def send(self, cmd):
-        pass
+        print MPlayer().identify(args)
+    def __init__(self,args):
+        super(Identifier, self).__init__(args)
+        self.args = args
 
 class MPlayerFifo(object):
     def send(self, s):
@@ -290,16 +290,20 @@ class Player(Application):
                 if self.mplayer.last_exit_status == 'Quit':
                     break
 
-class Identifier(Application):
-    def run(self):
-        res = MPlayer().identify(args)
-        if res:
-            print '\n'.join(res)
-    def __init__(self,args):
-        super(Identifier, self).__init__(args)
-        self.args = args
-
 class Fetcher(Application):
+    def send(self, cmd):
+        logging.info(cmd)
+    def run(self):
+        if not self.files:
+            print '请指定需要下载字幕的视频文件'
+            
+        for f in self.files:
+            m = Media(f)
+            if not m['abspath']: # file not exist
+                continue
+
+            self.fetcher.fetch(m['abspath'],m['shash'],self,self.savedir,config['dry_run'])
+
     def __init__(self, args):
         self.fetcher = SubFetcher()
         self.savedir = None
@@ -311,30 +315,33 @@ class Fetcher(Application):
                 self.savedir = arg.split('=')[1]
             else:
                 self.files += [arg]
-    def run(self):
-        if not self.files:
-            print '请指定需要下载字幕的视频文件'
-            
-        for f in self.files:
-            if not os.path.exists(f):
-                continue
 
-            filepath = os.path.abspath(f)
-            sz = os.path.getsize(filepath)
-            if sz>8192:
-                with open(filepath, 'rb') as f:
-                    filehash = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
-            else:
-                filehash = ';;;'
+### Main modules
+class Media(defaultdict):
+    def __init__(self, path):
+        super(Media, self).__init__(bool)
 
-            self.fetcher.fetch(filepath,filehash,self,self.savedir,self.dry_run)
+        if not os.path.exists(path):
+            return
 
-#class Media(defaultdict):
-#    pass
+        self['path'] = path
+        self['abspath'] = os.path.abspath(path)
+
+        sz = os.path.getsize(path)
+        if sz>8192:
+            with open(path, 'rb') as f:
+                self['shash'] = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
 
 class MPlayer(object):
     last_timestamp = 0.0
     last_exit_status = None
+
+    def identify(self, args):
+        args = [self.exe_path] + '-vo null -ao null -frames 0 -identify'.split() + args
+        if config['dry-run']:
+            return 'Will execute:\n  {0}'.format(' '.join(args))
+        else:
+            return '\n'.join([l for l in subprocess.check_output(args).splitlines() if l.startswith('ID_')])
 
     def probe(self, filename):
         info = {}
@@ -402,14 +409,6 @@ class MPlayer(object):
         logging.debug(''.join(items))
         return ret
         
-    def identify(self, args):
-        args = [self.exe_path] + '-vo null -ao null -frames 0 -identify'.split() + args
-        if config['dry-run']:
-            logging.debug('Will execute:\n{0}'.format(' '.join(args)))
-            return None
-        else:
-            return [l for l in subprocess.check_output(args).splitlines() if l.startswith('ID_')]
-
     def run(self, args, dry_run=False):
         args = [self.exe_path] + args
         logging.debug('\n'+' '.join(args))
@@ -908,5 +907,5 @@ if __name__ == '__main__':
             app = Identifier
         else:
             app = Application
-        
+#        print Media(sys.argv[1])
         app(args).run()

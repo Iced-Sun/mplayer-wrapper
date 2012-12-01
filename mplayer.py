@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-11-29 20:15:51 by subi>
+# Time-stamp: <2012-12-01 14:42:41 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -30,6 +30,7 @@ import subprocess, threading, time
 import hashlib
 import urllib2, struct
 from fractions import Fraction
+from collections import defaultdict
 
 # Helper classes and functions
 def which(prog):
@@ -154,8 +155,6 @@ def utf8lize(s):
 
 # Application classes
 class Application(object):
-    #    debug = False
-    dry_run = False
     args = []
     files = []
     bad_args =[]
@@ -166,7 +165,7 @@ class Application(object):
         if '--dry-run' in args:
             logging.root.setLevel(logging.DEBUG)
             args.remove('--dry-run')
-            self.dry_run = True
+            config['dry-run'] = True
     def run(self):
         print 'Running an unimplemented app.'
     def send(self, cmd):
@@ -195,6 +194,9 @@ class MPlayerFifo(object):
 
         try:
             os.mkfifo(self.__path)
+#            import atexit
+#            atexit.register(lambda f: os.unlink(f), self.__path)
+
             self.args = '-input file={0}'.format(self.__path).split()
         except OSError, e:
             logging.info(e)
@@ -273,6 +275,10 @@ class Player(Application):
                             else:
                                 pass
                         if need_fetch:
+                            # so we have to weakref self to break the implicit
+                            # circular references.
+                            import weakref
+#                            fetch_thread = threading.Thread(target=SubFetcher().fetch, args=(m['fullpath'],m['hash'],weakref.ref(self)))
                             fetch_thread = threading.Thread(target=SubFetcher().fetch, args=(m['fullpath'],m['hash'],self))
                             fetch_thread.daemon = True
                             fetch_thread.start()
@@ -285,14 +291,13 @@ class Player(Application):
                     break
 
 class Identifier(Application):
+    def run(self):
+        res = MPlayer().identify(args)
+        if res:
+            print '\n'.join(res)
     def __init__(self,args):
-        self.mplayer = MPlayer()
-
         super(Identifier, self).__init__(args)
         self.args = args
-    def run(self):
-        logging.debug('Identifying...\n       ' + ' '.join(args) )
-        print '\n'.join(self.mplayer.identify(args))
 
 class Fetcher(Application):
     def __init__(self, args):
@@ -323,7 +328,10 @@ class Fetcher(Application):
                 filehash = ';;;'
 
             self.fetcher.fetch(filepath,filehash,self,self.savedir,self.dry_run)
-            
+
+#class Media(defaultdict):
+#    pass
+
 class MPlayer(object):
     last_timestamp = 0.0
     last_exit_status = None
@@ -396,7 +404,11 @@ class MPlayer(object):
         
     def identify(self, args):
         args = [self.exe_path] + '-vo null -ao null -frames 0 -identify'.split() + args
-        return [l for l in subprocess.check_output(args).splitlines() if l.startswith('ID_')]
+        if config['dry-run']:
+            logging.debug('Will execute:\n{0}'.format(' '.join(args)))
+            return None
+        else:
+            return [l for l in subprocess.check_output(args).splitlines() if l.startswith('ID_')]
 
     def run(self, args, dry_run=False):
         args = [self.exe_path] + args
@@ -712,7 +724,17 @@ def parse_shooter_package(fileobj):
     
     logging.debug('{0} subtitle(s) parsed.'.format(len(subtitles)))
     return subtitles
-        
+
+class SubtitleHandler(object):
+    def fetch():
+        pass
+    def save():
+        pass
+    def load():
+        pass
+    def encode():
+        pass
+
 class SubFetcher(object):
     subtitles = []
     
@@ -871,11 +893,12 @@ def generate_filelist(files):
 
 if __name__ == '__main__':
     if sys.hexversion < 0x02070000:
-        print 'Please run the script with python>=2.7.0'
-    else:    
+        print 'Please run the script with python>=2.7'
+    else: 
+        config = defaultdict(bool)
+
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
         args = sys.argv[:]
-
         name = os.path.basename(args.pop(0))
         if 'mplayer' in name:
             app = Player
@@ -885,4 +908,5 @@ if __name__ == '__main__':
             app = Identifier
         else:
             app = Application
+        
         app(args).run()

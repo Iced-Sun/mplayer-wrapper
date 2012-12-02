@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-02 01:21:57 by subi>
+# Time-stamp: <2012-12-02 21:47:58 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -155,7 +155,13 @@ def utf8lize(s):
 
 ### Application classes
 class Application(object):
+    '''The application class will:
+    1. parse command line arguments
+    2. provide run() method to accomplish its role
+    '''
     def __init__(self, args):
+        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
+
         if '--debug' in args:
             logging.root.setLevel(logging.DEBUG)
             args.remove('--debug')
@@ -171,42 +177,6 @@ class Identifier(Application):
         super(Identifier, self).__init__(args)
         self.args = args
 
-class MPlayerFifo(object):
-    def send(self, s):
-        if self.args:
-            logging.debug('Sending command "{0}" to {1}...'.format(s, self.__path))
-            with open(self.__path,'w') as f:
-                f.write(s+'\n')
-        else:
-            logging.info('"{0}" cannot be sent to the unexist {1}.'.format(s, self.__path))
-    
-    def __init__(self):
-        self.args = []
-        
-        xdg = os.environ['XDG_RUNTIME_DIR']
-        if xdg:
-            self.__tmpdir = None
-            self.__path = os.path.join(xdg, 'mplayer.fifo')
-        else:
-            import tempfile
-            self.__tmpdir = tempfile.mkdtemp()
-            self.__path = os.path.join(self.__tmpdir, 'mplayer.fifo')
-
-        try:
-            os.mkfifo(self.__path)
-#            import atexit
-#            atexit.register(lambda f: os.unlink(f), self.__path)
-
-            self.args = '-input file={0}'.format(self.__path).split()
-        except OSError, e:
-            logging.info(e)
-            
-    def __del__(self):
-        if self.args:
-            os.unlink(self.__path)
-        if self.__tmpdir:
-            os.rmdir(self.__tmpdir)
-            
 class Player(Application):
     def __init__(self, args):
         super(Player, self).__init__(args)
@@ -291,21 +261,18 @@ class Player(Application):
                     break
 
 class Fetcher(Application):
-    def send(self, cmd):
-        logging.info(cmd)
     def run(self):
-        if not self.files:
-            print '请指定需要下载字幕的视频文件'
-            
         for f in self.files:
             m = Media(f)
             if not m['abspath']: # file not exist
                 continue
 
-            self.fetcher.fetch(m['abspath'],m['shash'],self,self.savedir,config['dry_run'])
+            self.sub.fetch(m)
+            self.sub.save(m)
 
     def __init__(self, args):
-        self.fetcher = SubFetcher()
+#        self.fetcher = SubFetcher()
+        self.sub = SubtitleHandler()
         self.savedir = None
         self.files = []
         
@@ -317,7 +284,46 @@ class Fetcher(Application):
                 self.files += [arg]
 
 ### Main modules
+class MPlayerFifo(object):
+    '''MPlayerFifo will maintain a FIFO for IPC with mplayer.
+    '''
+    def send(self, s):
+        if self.args:
+            logging.debug('Sending command "{0}" to {1}...'.format(s, self.__path))
+            with open(self.__path,'w') as f:
+                f.write(s+'\n')
+        else:
+            logging.info('"{0}" cannot be sent to the unexist {1}.'.format(s, self.__path))
+    
+    def __init__(self):
+        self.args = []
+        
+        xdg = os.environ['XDG_RUNTIME_DIR']
+        if xdg:
+            self.__tmpdir = None
+            self.__path = os.path.join(xdg, 'mplayer.fifo')
+        else:
+            import tempfile
+            self.__tmpdir = tempfile.mkdtemp()
+            self.__path = os.path.join(self.__tmpdir, 'mplayer.fifo')
+
+        try:
+            os.mkfifo(self.__path)
+#            import atexit
+#            atexit.register(lambda f: os.unlink(f), self.__path)
+
+            self.args = '-input file={0}'.format(self.__path).split()
+        except OSError, e:
+            logging.info(e)
+            
+    def __del__(self):
+        if self.args:
+            os.unlink(self.__path)
+        if self.__tmpdir:
+            os.rmdir(self.__tmpdir)
+            
 class Media(defaultdict):
+#    last_timestamp = 0.0
     def __init__(self, path):
         super(Media, self).__init__(bool)
 
@@ -339,7 +345,7 @@ class MPlayer(object):
     def identify(self, args):
         args = [self.exe_path] + '-vo null -ao null -frames 0 -identify'.split() + args
         if config['dry-run']:
-            return 'Will execute:\n  {0}'.format(' '.join(args))
+            return 'DRY-RUN: Were executing:\n  {0}'.format(' '.join(args))
         else:
             return '\n'.join([l for l in subprocess.check_output(args).splitlines() if l.startswith('ID_')])
 
@@ -352,7 +358,6 @@ class MPlayer(object):
             else:
                 info[a[0]] = a[2]
 
-        from collections import defaultdict
         ret = defaultdict(bool)
         ret['filename'] = filename
         ret['fullpath'] = os.path.abspath(filename)
@@ -725,115 +730,103 @@ def parse_shooter_package(fileobj):
     return subtitles
 
 class SubtitleHandler(object):
-    def fetch():
-        pass
-    def save():
-        pass
-    def load():
-        pass
-    def encode():
-        pass
+    def fetch(self, media):
+        if media['subtitles'] and media['subtitles']['shooter']:
+            logging.info('The media already has shooter.cn returned subtitles')
+            return
+        if not media['subtitles']:
+            media['subtitles'] = {}
 
-class SubFetcher(object):
-    subtitles = []
-    
-    def fetch(self, filepath, filehash, app, save_dir=None, dry_run=False):
-        # wait for mplayer to settle up
-        time.sleep(3)
+        # generate data for submission
+        filehash = media['shash']
+        head,tail = os.path.split(media['abspath'])
+        pathinfo= '\\'.join(['D:', os.path.basename(head), tail])
+        vstring = 'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(self.__splayer_rev, pathinfo, filehash)
+        vhash = hashlib.md5(vstring).hexdigest()
+        import random
+        boundary = '-'*28 + '{0:x}'.format(random.getrandbits(48))
 
-        app.send('osd_show_text "正在查询字幕..." 5000')
+        header = [('User-Agent', 'SPlayer Build {0}'.format(self.__splayer_rev)),
+                  ('Content-Type', 'multipart/form-data; boundary={0}'.format(boundary))
+                  ]
+        items = [('filehash', filehash), ('pathinfo', pathinfo), ('vhash', vhash)]
+        data = ''.join(['--{0}\n'
+                        'Content-Disposition: form-data; name="{1}"\n\n'
+                        '{2}\n'.format(boundary, *d) for d in items]
+                       + ['--' + boundary + '--'])
+
+        if config['dry-run']:
+            print 'DRY-RUN: Were trying to fetch subtitles for {0}.'.format(media['abspath'])
+            return
+        
+#        app.send('osd_show_text "正在查询字幕..." 5000')
+#            app.send('osd_show_text "查询字幕失败." 3000')
 
         # fetch
         for i, t in enumerate(self.__tries):
             try:
-                logging.debug('Wait for {0}s to connect to shooter server ({1})...'.format(t,i))
+                logging.debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(self.__tries)+1))
                 time.sleep(t)
 
-                self.__build_req(filepath, filehash)
+                url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(self.__schemas),
+                                                                   random.choice(self.__servers))
+                req = urllib2.Request(url)
+                for h in header:
+                    req.add_header(*h)
+                    req.add_data(data)
+                logging.debug('Connecting server {0} with the submission:\n'
+                              '{1}\n'
+                              '{2}\n'.format(url,header,data))
 
-                if dry_run:
-                    break
-
-                response = urllib2.urlopen(self.__req)
-                self.subtitles = parse_shooter_package(response)
+                # todo: with context manager
+                response = urllib2.urlopen(req)
+                media['subtitles']['shooter'] = parse_shooter_package(response)
                 response.close()
-                
-                if self.subtitles:
+
+                if media['subtitles']['shooter']:
                     break
             except urllib2.URLError, e:
                 logging.debug(e)
-
-        # save
-        if self.subtitles:
-            if save_dir:
-                prefix = os.path.join(save_dir,os.path.splitext(os.path.basename(filepath))[0])
-            else:
-                prefix = os.path.splitext(filepath)[0]
-
-            # save subtitles and generate mplayer fifo commands
-            for i,s in enumerate(self.subtitles):
-                suffix = (str(i) if i>0 else '')
-                path = prefix + suffix + '.' + s['extension']
-                if os.path.exists(path):
-                    path = prefix + suffix + '-1.' + s['extension']
-                logging.info('Saving the subtitle as {0}'.format(path))
-                with open(path,'wb') as f:
-                    f.write(s['content'])
-                app.send('sub_load "{0}"'.format(path))
-                app.send('sub_delay "{0}"'.format(s['delay']))
-            app.send('sub_file 0')
-        else:
-            logging.info('Failed to fetch subtitles.')
-            app.send('osd_show_text "查询字幕失败." 3000')
+        return
     
+    def save(self, media, save_dir=None):
+        if not media['subtitles'] or not media['subtitles']['shooter']:
+            logging.info("The media doesn't have shooter.cn returned subtitles")
+            return
+
+        if save_dir:
+            prefix = os.path.join(save_dir, os.path.splitext(os.path.basename(media['abspath']))[0])
+        else:
+            prefix,_ = os.path.splitext(media['abspath'])
+
+        # save subtitles
+        for i,s in enumerate(media['subtitles']['shooter']):
+            suffix = str(i) if i>0 else ''
+            path = prefix + suffix + '.' + s['extension']
+            if os.path.exists(path):
+                path = prefix + suffix + '-1.' + s['extension']
+            with open(path,'wb') as f:
+                f.write(s['content'])
+                logging.info('Saved the subtitle as {0}'.format(path))
+                s['path'] = path
+    def load():
+
+#            app.send('sub_load "{0}"'.format(path))
+#            app.send('sub_delay "{0}"'.format(s['delay']))
+#        app.send('sub_file 0')
+        pass
+    def force_utf8():
+        pass
+
     def __init__(self):
+        # shooter.cn
         import httplib
         self.__schemas = ['http', 'https'] if hasattr(httplib, 'HTTPS') else ['http']
         self.__servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
+        self.__splayer_rev = 2437 # as of 2012-07-02
 
-        self.__req = None
-        self.__tries = [0, 10, 30, 60, 120]
-        self.__fetch_successful = False
-
-    def __build_req(self, filepath, filehash):
-        self.__rev = 2437                               # as of 2012-07-02
-        self.__filehash = filehash
-        self.__pathinfo= '\\'.join(['D:',
-                                    os.path.basename(os.path.dirname(filepath)),
-                                    os.path.basename(filepath)])
-        vhash_base = 'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(self.__rev,
-                                                                   self.__pathinfo,
-                                                                   self.__filehash)
-        self.__vhash = hashlib.md5(vhash_base).hexdigest()
-
-        import random
-        boundary = '-'*28 + '{0:x}'.format(random.getrandbits(48))
-
-        url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(self.__schemas),
-                                                           random.choice(self.__servers))
-
-        header = []
-        header.append(['User-Agent', 'SPlayer Build {0}'.format(self.__rev)])
-        header.append(['Content-Type', 'multipart/form-data; boundary={0}'.format(boundary)])
-
-        items = []
-        items.append(['filehash', self.__filehash])
-        items.append(['pathinfo', self.__pathinfo])
-        items.append(['vhash', self.__vhash])
-        
-        data = ''.join(['--{0}\n'
-                        'Content-Disposition: form-data; name="{1}"\n\n'
-                        '{2}\n'.format(boundary, d[0], d[1]) for d in items]
-                       + ['--' + boundary + '--'])
-
-        logging.debug('Querying server {0} with\n'
-                      '{1}\n'
-                      '{2}\n'.format(url,header,data))
-
-        self.__req = urllib2.Request(url)
-        for h in header:
-            self.__req.add_header(h[0],h[1])
-        self.__req.add_data(data)
+        # automatic retry
+        self.__tries = [2, 10, 30, 60, 120]
 
 def generate_filelist(files):
     '''Generate a list for continuous playing.
@@ -896,7 +889,6 @@ if __name__ == '__main__':
     else: 
         config = defaultdict(bool)
 
-        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
         args = sys.argv[:]
         name = os.path.basename(args.pop(0))
         if 'mplayer' in name:
@@ -907,5 +899,5 @@ if __name__ == '__main__':
             app = Identifier
         else:
             app = Application
-#        print Media(sys.argv[1])
+
         app(args).run()

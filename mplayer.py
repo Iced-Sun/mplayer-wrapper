@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-02 21:47:58 by subi>
+# Time-stamp: <2012-12-04 12:42:42 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -51,7 +51,6 @@ def check_screen_dim():
         for l in subprocess.check_output(['xrandr']).splitlines():
             if l.startswith('*'): # xrandr 1.1
                 dim_updated = True
-                
                 _,w,_,h = l.split()
                 if w > dim.width:
                     dim = Dimension(w,h)
@@ -102,6 +101,7 @@ def guess_enc(s, precise=False):
     def count_in_codec(pattern):
         '''This in necessary because ASCII can be standalone or be the low
         byte of pattern.
+        Return: (ASCII, PATTERN, OTHER)
         '''
         if isinstance(pattern,list):
             pattern = '|'.join(pattern)
@@ -118,6 +118,8 @@ def guess_enc(s, precise=False):
 
     # filter out ASCII as much as possible
     s = ''.join(re.split('(?:(?<![\x80-\xFE]){0})+'.format(ascii),s))
+
+    # take first 2k bytes
     if len(s)>2048:
         s = s[0:2048]
     threshold = int(len(s) * .005)
@@ -128,7 +130,8 @@ def guess_enc(s, precise=False):
     if count_in_codec(utf8)[2] < threshold:
         return 'utf8'
     elif precise:
-        # GB2312 and BIG5 share lots of code points and hence sometimes we need a more precise method.
+        # GB2312 and BIG5 share lots of code points and hence sometimes we need
+        # a precise method.
         # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
         l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',s))
         h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',s))
@@ -139,7 +142,7 @@ def guess_enc(s, precise=False):
         else:
             return 'big5'
     elif count_in_codec(gbk)[2] < threshold:
-        # Favor GBK over BIG5. If this not you want, just set precise=True
+        # Favor GBK over BIG5. If this not you want, set precise=True
         return 'gbk'
     elif count_in_codec(big5)[2] < threshold:
         return 'big5'
@@ -173,6 +176,7 @@ class Application(object):
 class Identifier(Application):
     def run(self):
         print MPlayer().identify(args)
+        
     def __init__(self,args):
         super(Identifier, self).__init__(args)
         self.args = args
@@ -267,12 +271,10 @@ class Fetcher(Application):
             if not m['abspath']: # file not exist
                 continue
 
-            self.sub.fetch(m)
-            self.sub.save(m)
+            SubtitleHandler(m).run()
 
     def __init__(self, args):
 #        self.fetcher = SubFetcher()
-        self.sub = SubtitleHandler()
         self.savedir = None
         self.files = []
         
@@ -730,16 +732,18 @@ def parse_shooter_package(fileobj):
     return subtitles
 
 class SubtitleHandler(object):
-    def fetch(self, media):
-        if media['subtitles'] and media['subtitles']['shooter']:
-            logging.info('The media already has shooter.cn returned subtitles')
-            return
-        if not media['subtitles']:
-            media['subtitles'] = {}
-
+    def run(self):
+        if not self.__m['subtitles']:
+            self.fetch()
+        elif self.__m['subtitles']['embed'] or self.__m['subtitles']['external']:
+            pass
+        else:
+            self.fetch()
+            
+    def fetch(self):
         # generate data for submission
-        filehash = media['shash']
-        head,tail = os.path.split(media['abspath'])
+        filehash = self.__m['shash']
+        head,tail = os.path.split(self.__m['abspath'])
         pathinfo= '\\'.join(['D:', os.path.basename(head), tail])
         vstring = 'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(self.__splayer_rev, pathinfo, filehash)
         vhash = hashlib.md5(vstring).hexdigest()
@@ -756,7 +760,7 @@ class SubtitleHandler(object):
                        + ['--' + boundary + '--'])
 
         if config['dry-run']:
-            print 'DRY-RUN: Were trying to fetch subtitles for {0}.'.format(media['abspath'])
+            print 'DRY-RUN: Were trying to fetch subtitles for {0}.'.format(self.__m['abspath'])
             return
         
 #        app.send('osd_show_text "正在查询字幕..." 5000')
@@ -780,27 +784,23 @@ class SubtitleHandler(object):
 
                 # todo: with context manager
                 response = urllib2.urlopen(req)
-                media['subtitles']['shooter'] = parse_shooter_package(response)
+                self.__m['subtitles']['shooter'] = parse_shooter_package(response)
                 response.close()
 
-                if media['subtitles']['shooter']:
+                if self.__m['subtitles']['shooter']:
                     break
             except urllib2.URLError, e:
                 logging.debug(e)
         return
     
-    def save(self, media, save_dir=None):
-        if not media['subtitles'] or not media['subtitles']['shooter']:
-            logging.info("The media doesn't have shooter.cn returned subtitles")
-            return
-
+    def save(self, save_dir=None):
         if save_dir:
-            prefix = os.path.join(save_dir, os.path.splitext(os.path.basename(media['abspath']))[0])
+            prefix = os.path.join(save_dir, os.path.splitext(os.path.basename(self.__m['abspath']))[0])
         else:
-            prefix,_ = os.path.splitext(media['abspath'])
+            prefix,_ = os.path.splitext(self.__m['abspath'])
 
         # save subtitles
-        for i,s in enumerate(media['subtitles']['shooter']):
+        for i,s in enumerate(self.__m['subtitles']['shooter']):
             suffix = str(i) if i>0 else ''
             path = prefix + suffix + '.' + s['extension']
             if os.path.exists(path):
@@ -818,15 +818,18 @@ class SubtitleHandler(object):
     def force_utf8():
         pass
 
-    def __init__(self):
+    def __init__(self, media):
         # shooter.cn
         import httplib
         self.__schemas = ['http', 'https'] if hasattr(httplib, 'HTTPS') else ['http']
         self.__servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
         self.__splayer_rev = 2437 # as of 2012-07-02
-
-        # automatic retry
         self.__tries = [2, 10, 30, 60, 120]
+
+        # analyze media's subtitles
+        self.__m = media
+        if not self.__m['subtitles']:
+            self.__m['subtitles'] = defaultdict(bool)
 
 def generate_filelist(files):
     '''Generate a list for continuous playing.

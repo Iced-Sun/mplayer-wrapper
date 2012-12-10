@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-04 12:42:42 by subi>
+# Time-stamp: <2012-12-10 16:26:29 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -71,7 +71,7 @@ class Dimension(object):
         self.height = int(height)
         self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
 
-def guess_enc(s, precise=False):
+def guess_locale(s, precise=False):
     ascii = '[\x09\x0A\x0D\x20-\x7E]'
     gbk = ['[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
            '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
@@ -128,7 +128,7 @@ def guess_enc(s, precise=False):
     # be interpreted by the codec.
     # http://www.w3.org/International/questions/qa-forms-utf-8
     if count_in_codec(utf8)[2] < threshold:
-        return 'utf8'
+        return 'utf8', 'und'
     elif precise:
         # GB2312 and BIG5 share lots of code points and hence sometimes we need
         # a precise method.
@@ -136,26 +136,20 @@ def guess_enc(s, precise=False):
         l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',s))
         h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',s))
         if l == 0:
-            return 'gb2312'
+            return 'gb2312','chs'
         elif float(l)/float(h) < 0.25:
-            return 'gbk'
+            return 'gbk','chn'
         else:
-            return 'big5'
+            return 'big5','cht'
     elif count_in_codec(gbk)[2] < threshold:
         # Favor GBK over BIG5. If this not you want, set precise=True
-        return 'gbk'
+        return 'gbk', 'chn'
     elif count_in_codec(big5)[2] < threshold:
-        return 'big5'
+        return 'big5', 'cht'
     else:
-        return 'unknown'
+        # fallback to ascii
+        return 'ascii', 'und'
             
-def utf8lize(s):
-    enc = guess_enc(s)
-    if enc in ['utf8','unknown']:
-        return s
-    else:
-        return s.decode(enc,'ignore').encode('utf8')
-
 ### Application classes
 class Application(object):
     '''The application class will:
@@ -672,19 +666,13 @@ def parse_shooter_package(fileobj):
     package_count = struct.unpack('!b', c)[0]
 
     for i in range(package_count):
-        # note: var '_' is the length of the following bytestream, but is
-        # useless.
+        # NOTE: '_' is the length of following byte-stream
         c = f.read(8)
         _,desc_length = struct.unpack('!II', c)
         description = f.read(desc_length).decode('utf8')
-        if not description:
-            description = ''
-        else:
-            if 'delay' in description:
-                sub_delay = description.partition('=')[2] / 1000.0
-            else:
-                sub_delay = 0
-            description = ' ({0})'.format(description)
+        sub_delay = description.partition('=')[2] / 1000.0 if description and 'delay' in description else 0
+        if description:
+            logging.debug('Subtitle description: {0}'.format(description))
 
         c = f.read(5)
         _,file_count = struct.unpack('!IB', c)
@@ -707,39 +695,24 @@ def parse_shooter_package(fileobj):
                               'content': sub})
 
     logging.debug('{0} subtitle(s) fetched.'.format(len(subtitles)))
-    logging.debug('Filtering duplicated subtitles...')
-    dup_tag = [False]*len(subtitles)
-    for i in range(len(subtitles)):
-        if dup_tag[i]:
-            continue
-        for j in range(i+1, len(subtitles)):
-            if subtitles[i]['extension'] != subtitles[j]['extension']:
-                continue
-            sa = subtitles[i]['content']
-            sb = subtitles[j]['content']
-            import difflib
-            similarity = difflib.SequenceMatcher(None, sa, sb).real_quick_ratio()
-            logging.debug('Similarity is {0}.'.format(similarity))
-            if similarity > 0.7:
-                dup_tag[j] = True
-    subtitles = [subtitles[i] for i in range(len(subtitles)) if not dup_tag[i]]
-
-    logging.debug('Convert the current subtitle to UTF-8.')
-    for sub in subtitles:
-        sub['content'] = utf8lize(sub['content'])
-    
-    logging.debug('{0} subtitle(s) parsed.'.format(len(subtitles)))
     return subtitles
 
 class SubtitleHandler(object):
     def run(self):
         if not self.__m['subtitles']:
+            # no subtitles
             self.fetch()
         elif self.__m['subtitles']['embed'] or self.__m['subtitles']['external']:
+            # already have text subtitles
             pass
         else:
+            # whatever
             self.fetch()
-            
+
+        self.filter_duplicates()
+        self.force_utf8()
+        self.save_to_disk()
+        
     def fetch(self):
         # generate data for submission
         filehash = self.__m['shash']
@@ -775,12 +748,13 @@ class SubtitleHandler(object):
                 url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(self.__schemas),
                                                                    random.choice(self.__servers))
                 req = urllib2.Request(url)
-                for h in header:
-                    req.add_header(*h)
-                    req.add_data(data)
+                for h in header: req.add_header(*h)
+                req.add_data(data)
                 logging.debug('Connecting server {0} with the submission:\n'
-                              '{1}\n'
-                              '{2}\n'.format(url,header,data))
+                              '\n{1}\n'
+                              '{2}\n'.format(url,
+                                             '\n'.join(['{0}:{1}'.format(*h) for h in header]),
+                                             data))
 
                 # todo: with context manager
                 response = urllib2.urlopen(req)
@@ -792,8 +766,34 @@ class SubtitleHandler(object):
             except urllib2.URLError, e:
                 logging.debug(e)
         return
-    
-    def save(self, save_dir=None):
+
+    def filter_duplicates(self):
+        logging.debug('Trying to filter duplicated subtitles...')
+
+        subs = self.__m['subtitles']['shooter']
+        
+        for s in subs:
+            s['locale'] = guess_locale(s['content'])
+            
+        dup_tag = [False]*len(subs)
+        for i in range(len(subs)):
+            if dup_tag[i]:
+                continue
+            for j in range(i+1, len(subs)):
+                sa = subs[i]
+                sb = subs[j]
+                if sa['extension'] != sb['extension'] or sa['locale'] != sb['locale']:
+                    continue
+                import difflib
+                similarity = difflib.SequenceMatcher(None, sa['content'], sb['content']).real_quick_ratio()
+                logging.debug('Similarity is {0}.'.format(similarity))
+                if similarity > 0.7:
+                    dup_tag[j] = True
+        # TODO: reserve longer subtitles 
+        subs = [subs[i] for i in range(len(subs)) if not dup_tag[i]]
+        logging.debug('{0} subtitle(s) reserved after duplicates filtering.'.format(len(subs)))
+
+    def save_to_disk(self, save_dir=None):
         if save_dir:
             prefix = os.path.join(save_dir, os.path.splitext(os.path.basename(self.__m['abspath']))[0])
         else:
@@ -801,23 +801,33 @@ class SubtitleHandler(object):
 
         # save subtitles
         for i,s in enumerate(self.__m['subtitles']['shooter']):
-            suffix = str(i) if i>0 else ''
+            if s['locale'][1] == 'und':
+                suffix = str(i) if i>0 else ''
+            else:
+                suffix = '.' + s['locale'][1]
+                
             path = prefix + suffix + '.' + s['extension']
             if os.path.exists(path):
-                path = prefix + suffix + '-1.' + s['extension']
+                path = prefix + suffix + '1.' + s['extension']
             with open(path,'wb') as f:
                 f.write(s['content'])
                 logging.info('Saved the subtitle as {0}'.format(path))
                 s['path'] = path
+                
     def load():
 
 #            app.send('sub_load "{0}"'.format(path))
 #            app.send('sub_delay "{0}"'.format(s['delay']))
 #        app.send('sub_file 0')
         pass
-    def force_utf8():
-        pass
-
+    def force_utf8(self):
+        subs = self.__m['subtitles']['shooter']
+        
+        logging.debug('Convert the current subtitle to UTF-8.')
+        for s in subs:
+            if not s['locale'][0] in ['utf8', 'unknown']:
+                s['content'] = s['content'].decode(s['locale'][0],'ignore').encode('utf8')
+            
     def __init__(self, media):
         # shooter.cn
         import httplib

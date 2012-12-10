@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-10 20:41:01 by subi>
+# Time-stamp: <2012-12-10 23:02:12 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -370,14 +370,13 @@ class Media(defaultdict):
                                        '{0.numerator}:{0.denominator}'.format(self['DAR'])))
 
             # Subtitles
-            self['subtitles'] = defaultdict(list)
+            self['subtitles'] = defaultdict(bool)
             self['log'].append('  Subtitles:')
             if info['ID_SUBTITLE_ID']:
-                # TODO: use FFMPEG to extract the contents
-                self['subtitles']['text'] += [('embed', 'text') for p in info['ID_SUBTITLE_ID']]
+                self['subtitles']['embed'] = True
                 self['log'].append('      Embedded Text')
             if info['ID_FILE_SUB_ID']:
-                self['subtitles']['text'] += [('external', p) for p in info['ID_FILE_SUB_FILENAME']]
+                self['subtitles']['external'] = [('external', p) for p in info['ID_FILE_SUB_FILENAME']]
                 self['log'].append('      External Text: '
                                    '{0}'.format(('\n'+' '*21).join(info['ID_FILE_SUB_FILENAME'])))
             if info['ID_VOBSUB_ID']:
@@ -821,9 +820,15 @@ class SubtitleHandler(object):
 
         # analyze media's subtitles
         self.__m = media
-        if not self.__m['subtitles']:
-            self.__m['subtitles'] = defaultdict(bool)
+        if self.__m['subtitles']:
+            self.__parse_text_subtitles()
 
+    def __parse_text_subtitles(self):
+        if self.__m['subtitles']['embed']:
+            pass
+        if self.__m['subtitles']['external']:
+            pass
+        
 def generate_filelist(files):
     '''Generate a list for continuous playing.
     '''

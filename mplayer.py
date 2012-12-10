@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-10 18:03:04 by subi>
+# Time-stamp: <2012-12-10 20:41:01 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -33,6 +33,15 @@ from fractions import Fraction
 from collections import defaultdict
 
 ### Helper classes and functions
+# http://www.python.org/dev/peps/pep-0318/
+def singleton(cls):
+    instances = {}
+    def getinstance():
+        if cls not in instances:
+            instances[cls] = cls()
+        return instances[cls]
+    return getinstance
+
 def which(prog):
     paths = [''] if os.path.isabs(prog) else os.environ['PATH'].split(os.pathsep)
     for path in paths:
@@ -169,7 +178,7 @@ class Application(object):
 
 class Identifier(Application):
     def run(self):
-        print MPlayer().identify(args)
+        print MPlayer().identify(self.args)
         
     def __init__(self,args):
         super(Identifier, self).__init__(args)
@@ -262,13 +271,8 @@ class Fetcher(Application):
     def run(self):
         for f in self.files:
             m = Media(f)
-            if not m['abspath']: # file not exist
-                continue
-
-            SubtitleHandler(m).run()
-
+            if m['abspath']: SubtitleHandler(m).run()
     def __init__(self, args):
-#        self.fetcher = SubFetcher()
         self.savedir = None
         self.files = []
         
@@ -316,100 +320,87 @@ class MPlayerFifo(object):
 class Media(defaultdict):
     def __init__(self, path):
         super(Media, self).__init__(bool)
+        self['path'] = path
 
         if not os.path.exists(path):
             return
 
-        self['path'] = path
         self['abspath'] = os.path.abspath(path)
-
         sz = os.path.getsize(path)
         if sz>8192:
             with open(path, 'rb') as f:
                 self['shash'] = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
+        self['log'] = ['',
+                       '  Fullpath:         {0}'.format(self['abspath']),
+                       '  Hash(shooter.cn): {0}'.format(self['shash'])]
 
+        self.__probe_with_mplayer()
+
+        if config['debug']:
+            logging.debug('\n'.join(self['log']))
+
+    def __probe_with_mplayer(self):
+        info = defaultdict(list)
+        as_list_key = ['ID_SUBTITLE_ID', 'ID_FILE_SUB_ID', 'ID_FILE_SUB_FILENAME']
+        for l in MPlayer().identify([self['abspath']]).splitlines():
+            k,_,v = l.partition('=')
+            if k in as_list_key:
+                info[k] += [v]
+            else:
+                info[k] = v
+
+#        media['seekable'] = bool(info['ID_SEEKABLE'])
+        if info['ID_VIDEO_ID']:
+            self['video'] = True
+
+            # Aspect Ratios and Frame Sizes
+            # reference: http://www.mir.com/DMG/aspect.html
+            self['frame'] = Dimension(info['ID_VIDEO_WIDTH'], info['ID_VIDEO_HEIGHT'])
+            self['DAR'] = self['frame'].aspect
+            self['SAR'] = 1
+            if float(info['ID_VIDEO_ASPECT']) != 0:
+                # Display Aspect Ratio: 4:3 or 16:9
+                self['DAR'] = Fraction(info['ID_VIDEO_ASPECT']).limit_denominator(10)
+                # Sample/Pixel Aspect Ratio: 
+                self['SAR'] = (self['DAR'] / self['frame'].aspect).limit_denominator(82)
+
+            self['log'].append('  Dimension:        {0} [SAR {1} DAR {2}]'
+                               .format('{0.width}x{0.height}'.format(self['frame']),
+                                       '{0.numerator}:{0.denominator}'.format(self['SAR']),
+                                       '{0.numerator}:{0.denominator}'.format(self['DAR'])))
+
+            # Subtitles
+            self['subtitles'] = defaultdict(list)
+            self['log'].append('  Subtitles:')
+            if info['ID_SUBTITLE_ID']:
+                # TODO: use FFMPEG to extract the contents
+                self['subtitles']['text'] += [('embed', 'text') for p in info['ID_SUBTITLE_ID']]
+                self['log'].append('      Embedded Text')
+            if info['ID_FILE_SUB_ID']:
+                self['subtitles']['text'] += [('external', p) for p in info['ID_FILE_SUB_FILENAME']]
+                self['log'].append('      External Text: '
+                                   '{0}'.format(('\n'+' '*21).join(info['ID_FILE_SUB_FILENAME'])))
+            if info['ID_VOBSUB_ID']:
+                self['subtitles']['vobsub'] = True
+                self['log'].append('      Vobsub Glyph')
+
+@singleton
 class MPlayer(object):
     last_timestamp = 0.0
     last_exit_status = None
 
-    def identify(self, args):
-        args = [self.exe_path] + '-vo null -ao null -frames 0 -identify'.split() + args
-        if config['dry-run']:
-            return 'DRY-RUN: Were executing:\n  {0}'.format(' '.join(args))
-        else:
-            return '\n'.join([l for l in subprocess.check_output(args).splitlines() if l.startswith('ID_')])
-
-    def probe(self, filename):
-        info = {}
-        for l in self.identify([filename]):
-            a = l.partition('=')
-            if a[0] in info:
-                info[a[0]] = [info[a[0]]] + [a[2]]
-            else:
-                info[a[0]] = a[2]
-
-        ret = defaultdict(bool)
-        ret['filename'] = filename
-        ret['fullpath'] = os.path.abspath(filename)
-        if 'ID_FILENAME' in info:
-            ret['seekable'] = (info['ID_SEEKABLE'] == '1')
-            ret['video'] = True if 'ID_VIDEO_ID' in info else False
-        
-            if ret['video']:
-                # Aspect Ratios and Frame Sizes
-                # reference: http://www.mir.com/DMG/aspect.html
-                ret['frame'] = Dimension(info['ID_VIDEO_WIDTH'], info['ID_VIDEO_HEIGHT'])
-                ret['DAR'] = ret['frame'].aspect
-                ret['SAR'] = 1
-                if 'ID_VIDEO_ASPECT' in info and float(info['ID_VIDEO_ASPECT']) != 0:
-                    # Display Aspect Ratio: 4:3 or 16:9
-                    ret['DAR'] = Fraction(info['ID_VIDEO_ASPECT']).limit_denominator(10)
-                    # Sample/Pixel Aspect Ratio: 
-                    ret['SAR'] = (ret['DAR'] / ret['frame'].aspect).limit_denominator(82)
-
-                # Unique (hopefully) hash for shooter subtitle search
-                sz = os.path.getsize(ret['fullpath'])
-                if sz>8192:
-                    with open(ret['fullpath'], 'rb') as f:
-                        ret['hash'] = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
-                else:
-                    ret['hash'] = ';;;'
-
-                ret['subtitles'] = []
-                if 'ID_SUBTITLE_ID' in info:
-                    ret['subtitles'] += [('Embedded Text', '<Embedded Text>')]
-                if 'ID_FILE_SUB_ID' in info:
-                    ret['subtitles'] += [('External Text', info['ID_FILE_SUB_FILENAME'])]
-                if 'ID_VOBSUB_ID' in info:
-                    ret['subtitles'] += [('External Vobsub', info['ID_VOBSUB_FILENAME'])]
-
-        items = ['\n'
-                 '  Fullpath:         {0}\n'
-                 '  Seekable:         {1}\n'
-                 '  Video:            {2}\n'.format(ret['fullpath'], ret['seekable'], ret['video'])]
-        if ret['video']:
-            items.append('    Dimension:      {0} [SAR {1} DAR {2}]\n'
-                         '    Hash:           {3}\n'
-                         .format('{0.width}x{0.height}'.format(ret['frame']),
-                                 '{0.numerator}:{0.denominator}'.format(ret['SAR']),
-                                 '{0.numerator}:{0.denominator}'.format(ret['DAR']),
-                                 ret['hash']))
-
-            items.append('    Subtitles:\n')
-            for sub in ret['subtitles']:
-                items.append('      {0}:'.format(sub[0]))
-                subb = sub[1] if isinstance(sub[1], list) else [sub[1]]
-                items.append('\n                    '.join(subb))
-                
-        logging.debug(''.join(items))
-        return ret
-        
     def run(self, args, dry_run=False):
         args = [self.exe_path] + args
         logging.debug('\n'+' '.join(args))
         if not dry_run:
             self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
             self.__tee()
+
+    def identify(self, args):
+        args = [self.exe_path] + '-vo null -ao null -frames 0 -identify'.split() + args
+        if config['debug']:
+            logging.debug('Executing:\n  {0}'.format(' '.join(args)))
+        return '\n'.join([l for l in subprocess.check_output(args).splitlines() if l.startswith('ID_')])
 
     def has_active_instance(self):
         return self.__process != None
@@ -456,8 +447,6 @@ class MPlayer(object):
             if which(p):
                 self.exe_path = p
                 break
-        if not self.exe_path:
-            raise RuntimeError,'Cannot find a mplayer binary.'
 
         self.__mplayer2 = None
         self.__ass = None
@@ -906,5 +895,8 @@ if __name__ == '__main__':
             app = Identifier
         else:
             app = Application
-
-        app(args).run()
+        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
+        config['debug']=True
+        Media(args[0])
+#        app(args).run()
+#        MPlayer().probe(Media(args[0]))

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-10 23:02:12 by subi>
+# Time-stamp: <2012-12-10 23:14:55 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -240,12 +240,6 @@ class Player(Application):
                         need_fetch = True
                         for subs in m['subtitles']:
                             if subs[0] == 'External Text':
-                                logging.debug('Convert the subtitles to UTF-8.')
-                                for sub in (subs[1] if isinstance(subs[1],list) else [subs[1]]):
-                                    with open(sub,'rb') as ff:
-                                        s = utf8lize(ff.read())
-                                    with open(sub,'wb') as ff:
-                                        ff.write(s)
                                 need_fetch = False
                             elif subs[0] == 'Embedded Text':
                                 need_fetch = False
@@ -827,7 +821,14 @@ class SubtitleHandler(object):
         if self.__m['subtitles']['embed']:
             pass
         if self.__m['subtitles']['external']:
-            pass
+            logging.debug('Convert the external subtitles to UTF-8.')
+            for subfile in self.__m['subtitles']['external']:
+                with open(subfile,'r+b') as f:
+                    s = f.read()
+                    enc,_ = guess_locale(s)
+                    if not enc in ['utf8','unknown']:
+                        f.seek(0)
+                        f.write(s.decode(enc,'ignore').encode('utf8'))
         
 def generate_filelist(files):
     '''Generate a list for continuous playing.

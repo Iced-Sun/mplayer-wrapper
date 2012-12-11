@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-11 15:55:06 by subi>
+# Time-stamp: <2012-12-11 19:08:04 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -98,13 +98,13 @@ def guess_locale(s, precise=False):
             '\xF9[\x40-\x7E\xA1-\xD5]',           # Less frequently used characters
             '\xF9[\xD6-\xFE]',
             '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]']    # Reserved for user-defined characters
-    utf8 = ['[\xC2-\xDF][\x80-\xBF]',             # non-overlong 2-byte
-            '\xE0[\xA0-\xBF][\x80-\xBF]',         # excluding overlongs
-            '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}',  # straight 3-byte
-            '\xED[\x80-\x9F][\x80-\xBF]',         # excluding surrogates
-            '\xF0[\x90-\xBF][\x80-\xBF]{2}',      # planes 1-3
-            '[\xF1-\xF3][\x80-\xBF]{3}',          # planes 4-15
-            '\xF4[\x80-\x8F][\x80-\xBF]{2}']      # plane 16
+    utf_8 = ['[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
+             '\xE0[\xA0-\xBF][\x80-\xBF]',        # excluding overlongs
+             '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}', # straight 3-byte
+             '\xED[\x80-\x9F][\x80-\xBF]',        # excluding surrogates
+             '\xF0[\x90-\xBF][\x80-\xBF]{2}',     # planes 1-3
+             '[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
+             '\xF4[\x80-\x8F][\x80-\xBF]{2}']     # plane 16
 
     import re
     def count_in_codec(pattern):
@@ -135,9 +135,20 @@ def guess_locale(s, precise=False):
 
     # To guess the encoding of a byte string, we count the bytes those cannot
     # be interpreted by the codec.
+    # http://unicode.org/faq/utf_bom.html#BOM
+    if s.startswith('\x00\x00\xFE\xFF'):
+        return 'utf_32_be','und'
+    elif s.startswith('\xFF\xFE\x00\x00'):
+        return 'utf_32_le','und'
+    elif s.startswith('\xFE\xFF'):
+        return 'utf_16_be','und'
+    elif s.startswith('\xFF\xFE'):
+        return 'utf_16_le','und'
+    elif s.startswith('\xEF\xBB\xBF'):
+        return 'utf_8_sig','und'
     # http://www.w3.org/International/questions/qa-forms-utf-8
-    if count_in_codec(utf8)[2] < threshold:
-        return 'utf8', 'und'
+    elif count_in_codec(utf_8)[2] < threshold:
+        return 'utf_8', 'und'
     elif precise:
         # GB2312 and BIG5 share lots of code points and hence sometimes we need
         # a precise method.
@@ -645,7 +656,7 @@ def parse_shooter_package(fileobj):
         # NOTE: '_' is the length of following byte-stream
         c = f.read(8)
         _,desc_length = struct.unpack('!II', c)
-        description = f.read(desc_length).decode('utf8')
+        description = f.read(desc_length).decode('utf_8')
         sub_delay = description.partition('=')[2] / 1000.0 if description and 'delay' in description else 0
         if description:
             logging.debug('Subtitle description: {0}'.format(description))
@@ -802,8 +813,8 @@ class SubtitleHandler(object):
         
         logging.debug('Convert the current subtitle to UTF-8.')
         for s in subs:
-            if not s['locale'][0] in ['utf8', 'unknown']:
-                s['content'] = s['content'].decode(s['locale'][0],'ignore').encode('utf8')
+            if not s['locale'][0] in ['utf_8', 'unknown']:
+                s['content'] = s['content'].decode(s['locale'][0],'ignore').encode('utf_8')
             
     def __init__(self, media):
         # shooter.cn
@@ -840,9 +851,9 @@ class SubtitleHandler(object):
                 with open(subfile,'r+b') as f:
                     s = f.read()
                     enc,_ = guess_locale(s)
-                    if not enc in ['utf8','unknown']:
+                    if not enc in ['utf_8','unknown']:
                         f.seek(0)
-                        f.write(s.decode(enc,'ignore').encode('utf8'))
+                        f.write(s.decode(enc,'ignore').encode('utf_8'))
         
 def generate_filelist(files):
     '''Generate a list for continuous playing.
@@ -916,6 +927,4 @@ if __name__ == '__main__':
         else:
             app = Application
 
-#        app(args).run()
-        with open(args[0],'rb') as f:
-            print guess_locale(f.read())
+        app(args).run()

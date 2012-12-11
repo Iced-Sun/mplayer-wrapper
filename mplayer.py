@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-11 20:07:31 by subi>
+# Time-stamp: <2012-12-11 20:16:38 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -216,8 +216,12 @@ class Player(Application):
         super(Player, self).__init__(args)
 
         self.mplayer = MPlayer()
-        self.fifo = MPlayerFifo() if not self.dry_run else None
+        self.fifo = MPlayerFifo() if not config['dry_run'] else None
 
+        self.files = []
+        self.bad_args = []
+        self.args = []
+        
         while args:
             s = args.pop(0)
             if s == '--':
@@ -253,7 +257,7 @@ class Player(Application):
         else:
             for f in files:
                 args = []
-                m = self.mplayer.probe(f)
+                m = Media(f)
                 if m['video']:
                     args += '-subcp utf8'.split()
                     if self.fifo:
@@ -263,28 +267,28 @@ class Player(Application):
                     args += expand_video(m, use_ass, self.mplayer.is_mplayer2())
 
                     # now handle subtitles
-                    if not self.dry_run:
-                        need_fetch = True
-                        for subs in m['subtitles']:
-                            if subs[0] == 'External Text':
-                                need_fetch = False
-                            elif subs[0] == 'Embedded Text':
-                                need_fetch = False
-                            else:
-                                pass
-                        if need_fetch:
+#                    if not self.dry_run:
+#                        need_fetch = True
+#                        for subs in m['subtitles']:
+#                            if subs[0] == 'External Text':
+#                                need_fetch = False
+#                            elif subs[0] == 'Embedded Text':
+#                                need_fetch = False
+#                            else:
+#                                pass
+#                        if need_fetch:
                             # so we have to weakref self to break the implicit
                             # circular references.
-                            import weakref
+#                            import weakref
 #                            fetch_thread = threading.Thread(target=SubFetcher().fetch, args=(m['fullpath'],m['hash'],weakref.ref(self)))
-                            fetch_thread = threading.Thread(target=SubFetcher().fetch, args=(m['fullpath'],m['hash'],self))
-                            fetch_thread.daemon = True
-                            fetch_thread.start()
+#                            fetch_thread = threading.Thread(target=SubFetcher().fetch, args=(m['fullpath'],m['hash'],self))
+#                            fetch_thread.daemon = True
+#                            fetch_thread.start()
 
                 args += self.args
                 args += [f]
 
-                self.mplayer.run(args, self.dry_run)
+                self.mplayer.run(args)
                 if self.mplayer.last_exit_status == 'Quit':
                     break
 
@@ -409,10 +413,10 @@ class MPlayer(object):
     last_timestamp = 0.0
     last_exit_status = None
 
-    def run(self, args, dry_run=False):
+    def run(self, args):
         args = [self.exe_path] + args
         logging.debug('\n'+' '.join(args))
-        if not dry_run:
+        if not config['dry-run']:
             self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
             self.__tee()
 

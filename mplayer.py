@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-10 23:14:55 by subi>
+# Time-stamp: <2012-12-11 15:55:06 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -678,16 +678,17 @@ class SubtitleHandler(object):
         if not self.__m['subtitles']:
             # no subtitles
             self.fetch()
-        elif self.__m['subtitles']['embed'] or self.__m['subtitles']['external']:
-            # already have text subtitles
+        elif self.__m['subtitles']['embed'] == 'chi' or self.__m['subtitles']['external']:
+            # already have Chinese text subtitles
             pass
         else:
             # whatever
             self.fetch()
 
-        self.filter_duplicates()
-        self.force_utf8()
-        self.save_to_disk()
+        if self.__m['subtitles']['shooter']:
+            self.filter_duplicates()
+            self.force_utf8()
+            self.save_to_disk()
         
     def fetch(self):
         # generate data for submission
@@ -818,10 +819,23 @@ class SubtitleHandler(object):
             self.__parse_text_subtitles()
 
     def __parse_text_subtitles(self):
-        if self.__m['subtitles']['embed']:
-            pass
+        if self.__m['subtitles']['embed'] and which('ffmpeg'):
+            # TODO: extract subtitles and combine to a bi-lingual sub
+            # ffmpeg -i Seinfeld.2x01.The_Ex-Girlfriend.xvid-TLF.mkv -vn -an -scodec srt sub.srt
+            logging.debug('Parsing the embedded subtitles...')
+            for l in subprocess.check_output(['ffprobe',self.__m['abspath']], stderr=subprocess.STDOUT).splitlines():
+                if l.startswith('    Stream'):
+                    l = l.split()
+                    if l[2] == 'Subtitle:':
+                        stream = l[1][1:4]
+                        slang = l[1][5:8]
+                        scodec = l[3]
+                        logging.debug(' Embedded Subtitle: {0} {1} {2}'.format(stream, slang, scodec))
+                        if slang in ['chs','cht','chi','zh']:
+                            self.__m['subtitles']['embed'] = 'chi'
+                
         if self.__m['subtitles']['external']:
-            logging.debug('Convert the external subtitles to UTF-8.')
+            logging.debug('Converting the external subtitles to UTF-8...')
             for subfile in self.__m['subtitles']['external']:
                 with open(subfile,'r+b') as f:
                     s = f.read()
@@ -901,8 +915,7 @@ if __name__ == '__main__':
             app = Identifier
         else:
             app = Application
-        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
-        config['debug']=True
-        Media(args[0])
+
 #        app(args).run()
-#        MPlayer().probe(Media(args[0]))
+        with open(args[0],'rb') as f:
+            print guess_locale(f.read())

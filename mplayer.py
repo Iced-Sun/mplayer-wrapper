@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-11 19:09:35 by subi>
+# Time-stamp: <2012-12-11 20:07:31 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -80,7 +80,7 @@ class Dimension(object):
         self.height = int(height)
         self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
 
-def guess_locale(s, precise=False):
+def guess_locale_and_convert(s, precise=False):
     ascii = '[\x09\x0A\x0D\x20-\x7E]'
     gbk = ['[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
            '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
@@ -106,7 +106,6 @@ def guess_locale(s, precise=False):
              '[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
              '\xF4[\x80-\x8F][\x80-\xBF]{2}']     # plane 16
 
-    import re
     def count_in_codec(pattern):
         '''This in necessary because ASCII can be standalone or be the low
         byte of pattern.
@@ -125,7 +124,33 @@ def guess_locale(s, precise=False):
 
         return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(s)-len(interpretable)
 
+    # the defaults
+    enc,lang = 'ascii','und'
+    
+    # BOM are trivial to test
+    # http://unicode.org/faq/utf_bom.html#BOM
+    if s.startswith('\x00\x00\xFE\xFF'):
+        enc = 'utf_32_be'
+        s = s[4:-1]
+    elif s.startswith('\xFF\xFE\x00\x00'):
+        enc = 'utf_32_le'
+        s = s[4:-1]
+    elif s.startswith('\xFE\xFF'):
+        enc = 'utf_16_be'
+        s = s[2:-1]
+    elif s.startswith('\xFF\xFE'):
+        enc = 'utf_16_le'
+        s = s[2:-1]
+    elif s.startswith('\xEF\xBB\xBF'):
+        enc = 'utf_8'
+        s = s[3:-1]
+    if enc != 'ascii':
+        return enc,lang,s.decode(enc,'ignore').encode('utf_8')
+
+    # now the tricky part
+    ori_s = s
     # filter out ASCII as much as possible
+    import re
     s = ''.join(re.split('(?:(?<![\x80-\xFE]){0})+'.format(ascii),s))
 
     # take first 2k bytes
@@ -135,20 +160,9 @@ def guess_locale(s, precise=False):
 
     # To guess the encoding of a byte string, we count the bytes those cannot
     # be interpreted by the codec.
-    # http://unicode.org/faq/utf_bom.html#BOM
-    if s.startswith('\x00\x00\xFE\xFF'):
-        return 'utf_32_be','und'
-    elif s.startswith('\xFF\xFE\x00\x00'):
-        return 'utf_32_le','und'
-    elif s.startswith('\xFE\xFF'):
-        return 'utf_16_be','und'
-    elif s.startswith('\xFF\xFE'):
-        return 'utf_16_le','und'
-    elif s.startswith('\xEF\xBB\xBF'):
-        return 'utf_8_sig','und'
     # http://www.w3.org/International/questions/qa-forms-utf-8
-    elif count_in_codec(utf_8)[2] < threshold:
-        return 'utf_8', 'und'
+    if count_in_codec(utf_8)[2] < threshold:
+        enc = 'utf_8'
     elif precise:
         # GB2312 and BIG5 share lots of code points and hence sometimes we need
         # a precise method.
@@ -156,20 +170,22 @@ def guess_locale(s, precise=False):
         l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',s))
         h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',s))
         if l == 0:
-            return 'gb2312','chs'
+            enc,lang = 'gb2312','chs'
         elif float(l)/float(h) < 0.25:
-            return 'gbk','chn'
+            enc,lang = 'gbk','chi'
         else:
-            return 'big5','cht'
+            enc,lang = 'big5','cht'
     elif count_in_codec(gbk)[2] < threshold:
         # Favor GBK over BIG5. If this not you want, set precise=True
-        return 'gbk', 'chn'
+        enc,lang = 'gbk','chi'
     elif count_in_codec(big5)[2] < threshold:
-        return 'big5', 'cht'
-    else:
-        # fallback to ascii
-        return 'ascii', 'und'
-            
+        enc,lang = 'big5','cht'
+
+    if not enc in ['utf_8', 'ascii']:
+        ori_s = ori_s.decode(enc,'ignore').encode('utf_8')
+
+    return enc,lang,ori_s
+        
 ### Application classes
 class Application(object):
     '''The application class will:
@@ -697,8 +713,7 @@ class SubtitleHandler(object):
             self.fetch()
 
         if self.__m['subtitles']['shooter']:
-            self.filter_duplicates()
-            self.force_utf8()
+            self.force_utf8_and_filter_duplicates()
             self.save_to_disk()
         
     def fetch(self):
@@ -755,13 +770,14 @@ class SubtitleHandler(object):
                 logging.debug(e)
         return
 
-    def filter_duplicates(self):
+    def force_utf8_and_filter_duplicates(self):
+        # TODO: fix it
         logging.debug('Trying to filter duplicated subtitles...')
 
         subs = self.__m['subtitles']['shooter']
         
         for s in subs:
-            s['locale'] = guess_locale(s['content'])
+            _,s['lang'],s['content'] = guess_locale_and_convert(s['content'])
             
         dup_tag = [False]*len(subs)
         for i in range(len(subs)):
@@ -770,7 +786,7 @@ class SubtitleHandler(object):
             for j in range(i+1, len(subs)):
                 sa = subs[i]
                 sb = subs[j]
-                if sa['extension'] != sb['extension'] or sa['locale'] != sb['locale']:
+                if sa['extension'] != sb['extension'] or sa['lang'] != sb['lang']:
                     continue
                 import difflib
                 similarity = difflib.SequenceMatcher(None, sa['content'], sb['content']).real_quick_ratio()
@@ -789,10 +805,10 @@ class SubtitleHandler(object):
 
         # save subtitles
         for i,s in enumerate(self.__m['subtitles']['shooter']):
-            if s['locale'][1] == 'und':
+            if s['lang'] == 'und':
                 suffix = str(i) if i>0 else ''
             else:
-                suffix = '.' + s['locale'][1]
+                suffix = '.' + s['lang']
                 
             path = prefix + suffix + '.' + s['extension']
             if os.path.exists(path):
@@ -808,13 +824,6 @@ class SubtitleHandler(object):
 #            app.send('sub_delay "{0}"'.format(s['delay']))
 #        app.send('sub_file 0')
         pass
-    def force_utf8(self):
-        subs = self.__m['subtitles']['shooter']
-        
-        logging.debug('Convert the current subtitle to UTF-8.')
-        for s in subs:
-            if not s['locale'][0] in ['utf_8', 'unknown']:
-                s['content'] = s['content'].decode(s['locale'][0],'ignore').encode('utf_8')
             
     def __init__(self, media):
         # shooter.cn
@@ -850,10 +859,10 @@ class SubtitleHandler(object):
             for subfile in self.__m['subtitles']['external']:
                 with open(subfile,'r+b') as f:
                     s = f.read()
-                    enc,_ = guess_locale(s)
-                    if not enc in ['utf_8','unknown']:
+                    enc,_,s = guess_locale_and_convert(s)
+                    if not enc in ['utf_8','ascii']:
                         f.seek(0)
-                        f.write(s.decode(enc,'ignore').encode('utf_8'))
+                        f.write(s)
         
 def generate_filelist(files):
     '''Generate a list for continuous playing.

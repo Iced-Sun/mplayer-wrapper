@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-11 19:08:04 by subi>
+# Time-stamp: <2012-12-11 19:09:35 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -381,7 +381,7 @@ class Media(defaultdict):
                 self['subtitles']['embed'] = True
                 self['log'].append('      Embedded Text')
             if info['ID_FILE_SUB_ID']:
-                self['subtitles']['external'] = [('external', p) for p in info['ID_FILE_SUB_FILENAME']]
+                self['subtitles']['external'] = info['ID_FILE_SUB_FILENAME']
                 self['log'].append('      External Text: '
                                    '{0}'.format(('\n'+' '*21).join(info['ID_FILE_SUB_FILENAME'])))
             if info['ID_VOBSUB_ID']:

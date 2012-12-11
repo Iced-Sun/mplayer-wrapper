@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-11 20:16:38 by subi>
+# Time-stamp: <2012-12-11 20:19:11 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -264,7 +264,7 @@ class Player(Application):
                         args += self.fifo.args
 
                     use_ass = False if '-noass' in self.args or not self.mplayer.support_ass() else True
-                    args += expand_video(m, use_ass, self.mplayer.is_mplayer2())
+                    args += expand_video(m, use_ass)
 
                     # now handle subtitles
 #                    if not self.dry_run:
@@ -546,7 +546,7 @@ class MPlayer(object):
         logging.debug('Last exit status: {0}'.format(self.last_exit_status))
         self.__process = None
 
-def expand_video(media, use_ass=True, mplayer2=False):
+def expand_video(media, use_ass=True):
     '''Video-expanding attaches two black bands to the top and bottom of the
     video. MPlayer can then render OSDs/texts (time display, subtitles, etc.)
     within the bands.
@@ -651,8 +651,6 @@ def expand_video(media, use_ass=True, mplayer2=False):
             aspect_scale /= vertical_ratio
             margin = int(ass_margin_scale * media['frame'].height)
             args.extend('-ass-use-margins -ass-bottom-margin {0} -ass-top-margin {0}'.format(margin).split())
-            if mplayer2:
-                args.extend('-ass-force-style ScaleX={0}'.format(1.0/vertical_ratio).split())
                 
         args.extend('-ass -ass-font-scale {0}'.format(ass_scale * aspect_scale).split());
     else:

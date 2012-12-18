@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-18 11:35:56 by subi>
+# Time-stamp: <2012-12-18 11:49:22 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -73,7 +73,6 @@ def check_screen_dim():
         
     return dim
 
-# TODO: use namedtuple
 class Dimension(object):
     def __init__(self, width = 640, height = 480):
         self.width = int(width)
@@ -221,49 +220,45 @@ class Player(Application):
     def __init__(self, args):
         super(Player, self).__init__(args)
 
-        self.mplayer = MPlayer()
         self.fifo = MPlayerFifo() if not config['dry_run'] else None
-
-        self.files = []
-        self.bad_args = []
-        self.args = []
+        self.args = defaultdict(list)
         
         while args:
             s = args.pop(0)
             if s == '--':
-                self.files.extend(args)
+                self.args['file'] += args
                 args = []
             elif s.startswith('-'):
-                flag = self.mplayer.has_opt(s.partition('-')[2])
+                flag = MPlayer().has_opt(s.partition('-')[2])
                 if flag == 0:
-                    self.bad_args.append(s)
+                    self.args['invalid'].append(s)
                 elif flag == 1:
-                    self.args.append(s)
+                    self.args['valid'].append(s)
                 elif flag == 2:
-                    self.args.append(s)
+                    self.args['valid'].append(s)
                     if args:
-                        self.args.append(args.pop(0))
+                        self.args['valid'].append(args.pop(0))
             else:
-                self.files.append(s)
+                self.args['file'].append(s)
             
-        if self.bad_args:
-            logging.info('Unsupported options "' + ' '.join(self.bad_args) + '" are automatically suppressed.')
+        if self.args['invalid']:
+            logging.info('Unsupported options "' + ' '.join(self.args['invalid']) + '" are automatically suppressed.')
 
     def send(self, cmd):
-        if self.mplayer.has_active_instance():
+        if MPlayer().has_active_instance():
             self.fifo.send(cmd)
         else:
             logging.debug('Command "{0}" discarded.'.format(cmd))
             
     def run(self):
-        files = generate_filelist(self.files)
+        files = generate_filelist(self.args['file'])
 
         if not files:
-            self.mplayer.run(self.args)
+            MPlayer().run(self.args['valid'])
         else:
             for f in files:
                 args = []
-                m = Media(f, self.args)
+                m = Media(f, self.args['valid'])
                 m.prepare_args_for_mplayer()
                 MPlayer().run(m.mplayer_args())
 #                if m['video']:
@@ -297,7 +292,7 @@ class Player(Application):
 #                args += [f]
 
 #                self.mplayer.run(args)
-                if self.mplayer.last_exit_status == 'Quit':
+                if MPlayer().last_exit_status == 'Quit':
                     break
 
 class Fetcher(Application):

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-14 08:23:20 by subi>
+# Time-stamp: <2012-12-18 11:35:56 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -144,10 +144,14 @@ def guess_locale_and_convert(s, precise=False):
     elif s.startswith('\xEF\xBB\xBF'):
         enc = 'utf_8'
         s = s[3:-1]
+    # if BOM is detected
     if enc != 'ascii':
-        return enc,lang,s.decode(enc,'ignore').encode('utf_8')
+        if enc == 'utf_8':
+            return enc,lang,s
+        else:
+            return enc,lang,s.decode(enc,'ignore').encode('utf_8')
 
-    # now the tricky part
+    # now the tricks
     ori_s = s
     # filter out ASCII as much as possible
     import re
@@ -160,12 +164,12 @@ def guess_locale_and_convert(s, precise=False):
 
     # To guess the encoding of a byte string, we count the bytes those cannot
     # be interpreted by the codec.
-    # http://www.w3.org/International/questions/qa-forms-utf-8
     if count_in_codec(utf_8)[2] < threshold:
+        # http://www.w3.org/International/questions/qa-forms-utf-8
         enc = 'utf_8'
     elif precise:
         # GB2312 and BIG5 share lots of code points and hence sometimes we need
-        # a precise method.
+        # a heuristic method.
         # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
         l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',s))
         h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',s))
@@ -262,13 +266,13 @@ class Player(Application):
                 m = Media(f, self.args)
                 m.prepare_args_for_mplayer()
                 MPlayer().run(m.mplayer_args())
-                if m['video']:
-                    args += '-subcp utf8'.split()
-                    if self.fifo:
-                        args += self.fifo.args
+#                if m['video']:
+#                    args += '-subcp utf8'.split()
+#                    if self.fifo:
+#                        args += self.fifo.args
 
-                    use_ass = False if '-noass' in self.args or not self.mplayer.support_ass() else True
-                    args += expand_video(m, use_ass)
+#                    use_ass = False if '-noass' in self.args or not self.mplayer.support_ass() else True
+#                    args += expand_video(m, use_ass)
 
                     # now handle subtitles
 #                    if not self.dry_run:
@@ -289,10 +293,10 @@ class Player(Application):
 #                            fetch_thread.daemon = True
 #                            fetch_thread.start()
 
-                args += self.args
-                args += [f]
+#                args += self.args
+#                args += [f]
 
-                self.mplayer.run(args)
+#                self.mplayer.run(args)
                 if self.mplayer.last_exit_status == 'Quit':
                     break
 
@@ -352,208 +356,70 @@ class Media(object):
 
     def prepare_args_for_mplayer(self):
         if self.__info['video']:
-            self.expand_video()
+            if '-noass' in self.args or not MPlayer().support_ass():
+                self.add_arg('-noass')
+            else:
+                self.add_arg('-ass')
+
+            info = self.__info
+            raw = self.__raw_info['mplayer']
+            
+            # http://www.mir.com/DMG/aspect.html
+            # http://en.wikipedia.org/wiki/Pixel_aspect_ratio
+            # http://lipas.uwasa.fi/~f76998/video/conversion
+            w,h = raw['ID_VIDEO_WIDTH'][0], raw['ID_VIDEO_HEIGHT'][0]
+            a = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
+
+            # storage aspect ratio
+            info['storage'] = Dimension(w,h)
+
+            # display aspect ratio
+            if '-aspect' in self.args:
+                s = self.args[self.args.index('-aspect')+1]
+                if ':' in s:
+                    x,y = s.split(':')
+                    info['DAR'] = Fraction(int(x),int(y))
+                else:
+                    info['DAR'] = Fraction(s)
+            elif 'dsize' in self.args:
+                # TODO
+                pass
+            elif a == 0:
+                # let's take a guess
+                if info['storage'].width >= 1280:
+                    # HDTV always be 16:9
+                    info['DAR'] = Fraction(16,9)
+                else:
+                    # SDTV can be 4:3 or 16:9, blame the video ripper if the
+                    # video is 16:9
+                    info['DAR'] = Fraction(4,3)
+            else:
+                info['DAR'] = Fraction(a).limit_denominator(9)
+
+            # pixel/sample aspect ratio
+            info['PAR'] = (info['DAR'] / info['storage'].aspect).limit_denominator(82)
+
+            # non-square pixel fix
+            if info['PAR'] != 1:
+                self.add_arg('-aspect {0.numerator}:{0.denominator}'.format(info['DAR']))
+                # work-around for stretched osd/subtitle after applying -aspect
+                sw = info['storage'].width
+                sh = info['storage'].height
+                if info['storage'].width >= 1280:
+                    sh = int(sw / info['DAR'])
+                else:
+                    sw = int(sh * info['DAR'])
+                self.add_arg('-vf-pre scale={0}:{1}'.format(sw,sh))
+
+            # video expanding
+            for item in expand_video(info['DAR'], check_screen_dim().aspect):
+                self.add_arg(item)
 
     def add_arg(self,arg,force=False):
-        no_overwritten = ['-vf-pre','-vf-add']
+        never_overwritten = ['-vf-pre','-vf-add']
         arg = arg.split()
-        if force or arg[0] in no_overwritten or not arg[0] in self.args:
+        if force or arg[0] in never_overwritten or not arg[0] in self.args:
             self.args += arg
-    
-    def expand_video(self):
-        '''This function does 3 things:
-        1. video expansion:
-           Attach two black bands to the top and bottom of a video so that
-           MPlayer can put OSD/texts in the bands. Be ware that the video
-           expansion will change the video size (normally height), e.g. a
-           1280x720 video will be 1280x960 after an expansion towards 4:3.
-
-           Doing expansion is trivial because there is a '-vf expand' MPlayer
-           option. '-vf expand' can change the size of a video to fit a
-           specific aspect by attaching black bands (not scaling!). The black
-           bands may be attached vertically when changing towards a smaller
-           aspect (e.g. 16:9 to 4:3 conversion), or horizontal vise versa
-           (e.g. 4:3 to 16:9 conversion).
-
-           The '-ass-use-margins' was once used instead because of the
-           incompatibility (subtitle overlapping issue) between '-vf expand'
-           and the '-ass' subtitle renderer. This method can only attach black
-           bands vertically ('-ass-top-margin' and '-ass-bottom-margin').
-           
-        2. font size normalization:
-           Make the subtitle font be the same size when displayed full-screen
-           in the same screen for any video.
-           
-        3. expansion compactness:
-           Place the subtitle as close to the picture as possible (instead of
-           the very top/bottom of the screen, which is visual distracting)
-
-        The problems of the font size normalization and expansion compactness
-        bring the main complexity. To understand what has been done here, we
-        first describe how the font size is determined in MPlayer.
-
-        There are two OSD/subtitle renderers in MPlayer: one depends FreeType
-        and the other libass. OSD is always rendered through FreeType; text
-        subtitles (not vobsub) are rendered through libass if '-ass' is
-        specified, or FreeType otherwise.
-
-        As for mplayer2, the FreeType renderer has been dropped completely
-        since Aug. 2012; libass is used for all the OSD/subtitle rendering.
-        (http://git.mplayer2.org/mplayer2/commit/?id=083e6e3e1a9bf9ee470f59cfd1c775c8724c5ed9)
-        The -noass option is indeed applying a plain ASS style that mimics the
-        FreeType renderer.
-
-        From here on, (X,Y) denotes the display size of a video. Remember that
-        it can be changed by '-vf expand'.
-        
-        Here are the details:
-        1. The FreeType Renderer:
-                      font_size = movie_size * font_scale_factor / 100
-           Simple and clear.
-
-           The movie_size is determined by the option '-subfont-autoscale':
-           a. subfont-autoscale = 0 (no autoscale):
-                      movie_size = 100
-           b. subfont-autoscale = 1 (proportional to video height):
-                      movie_size = Y
-           c. subfont-autoscale = 2 (proportional to video width):
-                      movie_size = X
-           d. subfont-autoscale = 3 (proportional to video diagonal):
-                      movie_size = sqrt(X^2+Y^2)
-
-           The font_scale_factor is assigned by the option
-           '-subfont-text-scale' and '-subfont-osd-scale', which defaults to
-           3.5 and 4.0, respectively, and applies to subtitles and OSD,
-           respectively.
-        2. The libass Renderer:
-           MPlayer provides some ASS styles for libass; font-scale involved
-           styles are:
-           i).  PlayResX,PlayResY
-                They are the source frame (i.e. the reference frame for ASS
-                style with an absolute value, e.g. FontSize and Margins).
-
-                PlayResY defaults to 288 and. PlayResX defaults to
-                PlayResY/1.3333, which is 384.
-           ii). ScaleX,ScaleY
-                These font scales default to 1.
-           iii).FontSize
-                As pointed above, the FontSize is the size in the reference
-                frame (PlayResX,PlayResY).
-                      FontSize = PlayResY * font_scale_factor / 100
-
-                The font_scale_factor is again assigned by the option
-                '-subfont-text-scale' and '-subfont-osd-scale', which applies
-                to subtitles and OSD, respectively. (Be ware that OSD is
-                rendered by libass in mplayer2.)
-                      
-                The option '-subfont-autoscale' will affect the FontSize as
-                well. Although this is in fact meaningless because the font
-                size is always proportional to video height only in libass
-                renderer, a correction that corresponds to about 4:3 aspect
-                ratio video is applied to get a size somewhat closer to what
-                non-libass rendering.
-                a. subfont-autoscale = 0 (no autoscale):
-                      ignored
-                b. subfont-autoscale = 1 (proportional to video height):
-                      ignored
-                c. subfont-autoscale = 2 (proportional to video width):
-                      FontSize *= 1.3
-                d. subfont-autoscale = 3 (proportional to video diagonal):
-                      FontSize *= 1.4 (mplayer)
-                      FontSize *= 1.7 (mplayer2)
-           iv). font_size_coeff
-                This is not an ASS style but an extra parameter for libass. The
-                value is specified by the '-ass-font-scale' MPlayer option.
-
-           libass does the real work as follows:
-           i). determine the scale factor for (PlayResX,PlayResY)->(X,Y)
-                      font_scale = font_size_coeff * Y/PlayResY
-           ii).apply the font scale:
-                      font_x = FontSize * font_scale * ScaleX
-                      font_y = FontSize * font_scale * ScaleY
-
-           Combining all the procedure and supposing that the ASS styles take
-           default values, the font size displayed in frame (X,Y) is:
-                      font_size = font_size_coeff * font_scale_factor * Y/100
-           Clearly we see that
-                      font_size ∝ Y                      (*)
-
-        Now let's try the font size normalization. What we need is the Y_screen
-        proportionality of the font size. (Of course you can use X or diagonal
-        instead of Y).
-        1. If we don't care the expansion compactness, the video will be
-           expanded to the screen aspect, hence Y = Y_screen. There is nothing
-           to be done for libass renderer, as the font size is proportional to
-           Y (see *).
-
-           For the FreeType renderer, as long as subfont-autoscale is enabled,
-           the font size is also proportional to Y because of the fixed aspect.
-
-        2. If we want to make the expansion compact, the display aspect of the
-           expanded video will be typically larger than the screen aspect.
-           Let's do some calculations:
-           a. display_aspect > screen_aspect
-                      font_size ∝ Y = Y_screen / display_aspect:screen_aspect
-           b. display_aspect = screen_aspect
-                      font_size ∝ Y = Y_screen
-           c. display_aspect < screen_aspect
-              Won't happen because we do horizontal expansion if display_aspect
-              < screen_aspect so the result is always display_aspect =
-              screen_aspect
-
-           Let font_scale_factor *= display_aspect:screen_aspect resolve all
-           the problem. For FreeType renderer, we will want to set
-           subfont-autoscale=1 or else an additional correction has to be
-           applied.
-        '''
-        # collecting data for expanding
-        info = self.__info
-        raw = self.__raw_info['mplayer']
-        # Aspect Ratios and Frame Sizes
-        # http://www.mir.com/DMG/aspect.html
-        w,h,a = raw['ID_VIDEO_WIDTH'][0], raw['ID_VIDEO_HEIGHT'][0], raw['ID_VIDEO_ASPECT'][0]
-        info['frame'] = Dimension(w,h)
-        info['DAR'] = info['frame'].aspect
-        info['SAR'] = 1
-        if float(a) != 0:
-            # Display Aspect Ratio: 4:3 or 16:9
-            info['DAR'] = Fraction(a).limit_denominator(10)
-            # Sample/Pixel Aspect Ratio: 
-            info['SAR'] = (info['DAR'] / info['frame'].aspect).limit_denominator(82)
-
-        # the video is too narrow (<4:3); assume 4:3
-        if info['DAR'] < Fraction(4,3):
-            self.add_arg('-vf-add dsize=4/3')
-
-        # be proportional to height
-        self.add_arg('-subfont-autoscale 1')
-
-        # default scales
-        scale_base_factor = 1.5
-        default_subfont_text_scale = 3.5
-        default_subfont_osd_scale = 4
-        subfont_text_scale = default_subfont_text_scale * scale_base_factor
-        subfont_osd_scale = default_subfont_osd_scale * scale_base_factor
-
-        # expansion compactness:
-        # a margin take 1.8 lines of 18-pixels font in screen of height 288
-        margin_scale = 18.0/288.0 * 1.8 * scale_base_factor
-        expected_DAR = info['DAR'] / (1+2*margin_scale)
-        screen_aspect = check_screen_dim().aspect
-        if expected_DAR > screen_aspect:
-            DAR = expected_DAR
-            subfont_text_scale *= expected_DAR/screen_aspect
-        else:
-            DAR = screen_aspect
-
-        # generate MPlayer args
-        self.add_arg('-vf-add expand=::::1:{0}'.format(DAR))
-        self.add_arg('-subfont-text-scale {0}'.format(subfont_text_scale))
-        self.add_arg('-subfont-osd-scale {0}'.format(subfont_osd_scale))
-        if '-noass' in self.args or not MPlayer().support_ass():
-            self.add_arg('-noass')
-        else:
-            self.add_arg('-ass')
 
     def __init__(self,path,global_args=[]):
         self.args = global_args[:]
@@ -578,7 +444,7 @@ class Media(object):
         # handling, hence do it unconditionally
         self.__raw_info['mplayer'] = defaultdict(list)
         raw = self.__raw_info['mplayer']
-        for l in MPlayer().identify([info['abspath']]).splitlines():
+        for l in MPlayer().identify(self.args+[info['abspath']]).splitlines():
             k,_,v = l.partition('=')
             raw[k].append(v)
         if raw['ID_VIDEO_ID']:
@@ -591,12 +457,11 @@ class Media(object):
         log_items = ['  Fullpath:  {0}'.format(info['abspath']),
                      '  Hash:      {0}'.format(info['shash'])]
         if info['video']:
-            log_items.append('  Dimension: {0} [SAR {1} DAR {2}]'
-                             .format('{0.width}x{0.height}'.format(info['frame']),
-                                     '{0.numerator}:{0.denominator}'.format(info['SAR']),
+            log_items.append('  Dimension: {0} [PAR {1} DAR {2}]'
+                             .format('{0.width}x{0.height}'.format(info['storage']),
+                                     '{0.numerator}:{0.denominator}'.format(info['PAR']),
                                      '{0.numerator}:{0.denominator}'.format(info['DAR'])))
         logging.debug('\n'+'\n'.join(log_items))
-        print self.args
         
 class Media1(defaultdict):
     def __probe_with_mplayer(self):
@@ -959,7 +824,176 @@ class SubtitleHandler(object):
                     if not enc in ['utf_8','ascii']:
                         f.seek(0)
                         f.write(s)
+
+def expand_video(source_aspect, target_aspect):
+    '''This function does 3 things:
+    1. Video Expansion:
+       Attach two black bands to the top and bottom of a video so that MPlayer
+       can put OSD/texts in the bands. Be ware that the video expansion will
+       change the video size (normally height), e.g. a 1280x720 video will be
+       1280x960 after an expansion towards 4:3.
+
+       Doing expansion is trivial because there is a '-vf expand' MPlayer
+       option. '-vf expand' can change the size of a video to fit a specific
+       aspect by attaching black bands (not scaling!). The black bands may be
+       attached vertically when changing towards a smaller aspect (e.g. 16:9 to
+       4:3 conversion), or horizontal vise versa (e.g. 4:3 to 16:9 conversion).
+
+       The '-ass-use-margins' was once used instead because of the
+       incompatibility (subtitle overlapping issue) between '-vf expand' and
+       the '-ass' subtitle renderer. This method can only attach black bands
+       vertically ('-ass-top-margin' and '-ass-bottom-margin').
+           
+    2. Font-size Normalization:
+       Make the subtitle font be the same size when displayed full-screen in
+       the same screen for any video.
+           
+    3. Expansion Compactness:
+       Place the subtitle as close to the picture as possible (instead of the
+       very top/bottom of the screen, which is visual distracting).
+
+    The problems of the Font-size Normalization and Expansion Compactness bring
+    the main complexities. To understand what has been done here, we first
+    describe how the font size is determined in MPlayer.
+
+    There are two OSD/subtitle renderers in MPlayer: one depends FreeType and
+    the other libass. OSD is always rendered through FreeType; text subtitles
+    (not vobsub) are rendered through libass if '-ass' is specified, or
+    FreeType otherwise.
+
+    As for mplayer2, the FreeType renderer has been dropped completely since
+    Aug. 2012; libass is used for all the OSD/subtitle rendering.
+    (http://git.mplayer2.org/mplayer2/commit/?id=083e6e3e1a9bf9ee470f59cfd1c775c8724c5ed9)
+    The -noass option is indeed applying a plain ASS style that mimics the
+    FreeType renderer.
+
+    From here on, (X,Y) denotes the display size of a video. Remember that its
+    aspect ratio is on the point of being changed by '-vf expand'.
         
+    Here are the details:
+    1. The FreeType Renderer:
+                      font_size = movie_size * font_scale_factor / 100
+       Simple and clear.
+
+       The movie_size is determined by the option '-subfont-autoscale':
+       a. subfont-autoscale = 0 (no autoscale):
+                      movie_size = 100
+       b. subfont-autoscale = 1 (proportional to video height):
+                      movie_size = Y
+       c. subfont-autoscale = 2 (proportional to video width):
+                      movie_size = X
+       d. subfont-autoscale = 3 (proportional to video diagonal):
+                      movie_size = sqrt(X^2+Y^2)
+
+       The font_scale_factor is assigned by the option '-subfont-text-scale'
+       and '-subfont-osd-scale', which defaults to 3.5 and 4.0, respectively,
+       and applies to subtitles and OSD, respectively.
+           
+    2. The libass Renderer:
+       MPlayer provides some ASS styles for libass; font-scale involved styles
+       are:
+       i).  PlayResX,PlayResY
+            They are the source frame (i.e. the reference frame for ASS style
+            with an absolute value, e.g. FontSize and Margins).
+
+            PlayResY defaults to 288 and. PlayResX defaults to PlayResY/1.3333,
+            which is 384.
+       ii). ScaleX,ScaleY
+            These font scales default to 1.
+       iii).FontSize
+            As pointed above, the FontSize is the size in the reference frame
+            (PlayResX,PlayResY).
+                      FontSize = PlayResY * font_scale_factor / 100
+
+            The font_scale_factor is again assigned by the option
+            '-subfont-text-scale' and '-subfont-osd-scale', which applies to
+            subtitles and OSD, respectively. (Be ware that OSD is rendered by
+            libass in mplayer2.)
+                      
+            The option '-subfont-autoscale' will affect the FontSize as
+            well. Although this is in fact meaningless because the font size is
+            always proportional to video height only in libass renderer, a
+            correction that corresponds to about 4:3 aspect ratio video is
+            applied to get a size somewhat closer to what non-libass rendering.
+            a. subfont-autoscale = 0 (no autoscale):
+                      ignored
+            b. subfont-autoscale = 1 (proportional to video height):
+                      ignored
+            c. subfont-autoscale = 2 (proportional to video width):
+                      FontSize *= 1.3
+            d. subfont-autoscale = 3 (proportional to video diagonal):
+                      FontSize *= 1.4 (mplayer)
+                      FontSize *= 1.7 (mplayer2)
+       iv). font_size_coeff
+            This is not an ASS style but an extra parameter for libass. The
+            value is specified by the '-ass-font-scale' MPlayer option.
+
+       libass does the real work as follows:
+       i). determine the scale factor for (PlayResX,PlayResY)->(X,Y)
+                      font_scale = font_size_coeff * Y/PlayResY
+       ii).apply the font scale:
+                      font_x = FontSize * font_scale * ScaleX
+                      font_y = FontSize * font_scale * ScaleY
+
+       Combining all the procedure and supposing that the ASS styles take
+       default values, the font size displayed in frame (X,Y) is:
+               font_size = font_size_coeff * font_scale_factor * Y/100  (*)
+
+    Now let's try the font size normalization. What we need is the Y_screen
+    proportionality of the font size. (Of course you can use X or diagonal
+    instead of Y).
+    1. If we don't care the expansion compactness, the video will be expanded
+       to the screen aspect, hence Y = Y_screen. There is nothing to be done
+       for libass renderer, as the font size is proportional to Y (see *).
+
+       For the FreeType renderer, as long as subfont-autoscale is enabled, the
+       font size is always proportional to Y because of the fixed aspect.
+
+    2. If we want to make the expansion compact, the display aspect of the
+       expanded video will be typically larger than the screen aspect. Let's do
+       some calculations:
+       a. display_aspect > screen_aspect
+                    font_size ∝ Y = Y_screen / display_aspect:screen_aspect
+       b. display_aspect = screen_aspect
+                    font_size ∝ Y = Y_screen
+       c. display_aspect < screen_aspect
+          Won't happen because we do horizontal expansion if display_aspect <
+          screen_aspect so the result is always display_aspect = screen_aspect.
+
+    Let font_scale_factor *= display_aspect:screen_aspect resolve all the
+    problem. For FreeType renderer, we will want to set subfont-autoscale=1 or
+    else an additional correction has to be applied.
+    '''
+    args = []
+    # the video is too narrow (<4:3); assume 4:3
+    if source_aspect < Fraction(4,3):
+        args.append('-vf-add dsize=4/3')
+
+    # be proportional to height
+    args.append('-subfont-autoscale 1')
+
+    # default scales
+    scale_base_factor = 1.5
+    subfont_text_scale = 3.5 * scale_base_factor
+    subfont_osd_scale = 4 * scale_base_factor
+
+    # expansion compactness:
+    # a margin take 1.8 lines of 18-pixels font in screen of height 288
+    margin_scale = 18.0/288.0 * 1.8 * scale_base_factor
+    expected_aspect = source_aspect / (1+2*margin_scale)
+    if expected_aspect > target_aspect:
+        display_aspect = expected_aspect
+        subfont_text_scale *= expected_aspect/target_aspect
+    else:
+        display_aspect = target_aspect
+
+    # generate MPlayer args
+    args.append('-vf-add expand=::::1:{0}'.format(display_aspect))
+    args.append('-subfont-text-scale {0}'.format(subfont_text_scale))
+    args.append('-subfont-osd-scale {0}'.format(subfont_osd_scale))
+
+    return args
+       
 def generate_filelist(files):
     '''Generate a list for continuous playing.
     '''

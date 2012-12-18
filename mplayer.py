@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-18 11:49:22 by subi>
+# Time-stamp: <2012-12-18 11:57:07 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -863,7 +863,7 @@ def expand_video(source_aspect, target_aspect):
     FreeType renderer.
 
     From here on, (X,Y) denotes the display size of a video. Remember that its
-    aspect ratio is on the point of being changed by '-vf expand'.
+    aspect ratio is subject to being changed by '-vf expand'.
         
     Here are the details:
     1. The FreeType Renderer:

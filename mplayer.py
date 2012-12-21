@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-18 11:57:07 by subi>
+# Time-stamp: <2012-12-22 00:39:36 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -23,6 +23,9 @@
 # * "not compiled in option"
 # * detect the language in embedded subtitles, which is guaranteed to be utf8
 # * use ffprobe for better(?) metainfo detection?
+
+#from __future__ import unicode_literals
+#from __future__ import division
 
 import logging
 import os,sys
@@ -342,7 +345,7 @@ class MPlayerFifo(object):
             os.mkfifo(self.__path)
             atexit.register(lambda f: os.unlink(f), self.__path)
             self.args = '-input file={0}'.format(self.__path).split()
-        except OSError, e:
+        except OSError as e:
             logging.info(e)
 
 class Media(object):
@@ -369,6 +372,11 @@ class Media(object):
             info['storage'] = Dimension(w,h)
 
             # display aspect ratio
+            # always assume aspects of 4:3, 16:9, and >16:9 (wide-screen
+            # movies)
+            def aspect_not_stupid(ar):
+                return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
+
             if '-aspect' in self.args:
                 s = self.args[self.args.index('-aspect')+1]
                 if ':' in s:
@@ -379,17 +387,24 @@ class Media(object):
             elif 'dsize' in self.args:
                 # TODO
                 pass
-            elif a == 0:
-                # let's take a guess
+            elif aspect_not_stupid(a):
+                info['DAR'] = Fraction(a).limit_denominator(9)
+            else:
+                # let's guess
                 if info['storage'].width >= 1280:
-                    # HDTV always be 16:9
+                    # http://en.wikipedia.org/wiki/High-definition_television
+                    # HDTV is always 16:9
+                    info['DAR'] = Fraction(16,9)
+                elif info['storage'].width >= 700:
+                    # http://en.wikipedia.org/wiki/Enhanced-definition_television
+                    # EDTV can be 4:3 or 16:9, blame the video ripper if we
+                    # took the wrong guess
                     info['DAR'] = Fraction(16,9)
                 else:
-                    # SDTV can be 4:3 or 16:9, blame the video ripper if the
-                    # video is 16:9
+                    # http://en.wikipedia.org/wiki/Standard-definition_television
+                    # SDTV can be 4:3 or 16:9, blame the video ripper if we
+                    # took the wrong guess
                     info['DAR'] = Fraction(4,3)
-            else:
-                info['DAR'] = Fraction(a).limit_denominator(9)
 
             # pixel/sample aspect ratio
             info['PAR'] = (info['DAR'] / info['storage'].aspect).limit_denominator(82)

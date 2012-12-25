@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-25 21:53:33 by subi>
+# Time-stamp: <2012-12-25 23:01:58 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -258,7 +258,7 @@ class Player(Application):
             for f in files:
                 args = []
                 m = Media(f, self.args['valid'])
-                m.prepare_args_for_mplayer()
+                m.prepare_mplayer_args()
                 MPlayer().run(m.mplayer_args())
 #                if m['video']:
 #                    args += '-subcp utf8'.split()
@@ -346,8 +346,55 @@ class MPlayerFifo(object):
 
 class Media(object):
     def mplayer_args(self):
-        return self.args + [self.__info['abspath']]
+        return self.args
 
+    def __prepare_video_geometry(self, w, h, a):
+        # http://www.mir.com/DMG/aspect.html
+        # http://en.wikipedia.org/wiki/Pixel_aspect_ratio
+        # http://lipas.uwasa.fi/~f76998/video/conversion
+        info = self.__info
+
+        # storage aspect ratio
+        info['storage'] = Dimension(w,h)
+
+        # display aspect ratio
+        # always assume aspects of 4:3, 16:9, and >16:9 (wide-screen
+        # movies)
+        def aspect_not_stupid(ar):
+            return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
+
+        if '-aspect' in self.args:
+            s = self.args[self.args.index('-aspect')+1]
+            if ':' in s:
+                x,y = s.split(':')
+                info['DAR'] = Fraction(int(x),int(y))
+            else:
+                info['DAR'] = Fraction(s)
+        elif 'dsize' in self.args:
+            # TODO
+            pass
+        elif aspect_not_stupid(a):
+            info['DAR'] = Fraction(a).limit_denominator(9)
+        else:
+            # let's guess
+            if info['storage'].width >= 1280:
+                # http://en.wikipedia.org/wiki/High-definition_television
+                # HDTV is always 16:9
+                info['DAR'] = Fraction(16,9)
+            elif info['storage'].width >= 700:
+                # http://en.wikipedia.org/wiki/Enhanced-definition_television
+                # EDTV can be 4:3 or 16:9, blame the video ripper if we
+                # took the wrong guess
+                info['DAR'] = Fraction(16,9)
+            else:
+                # http://en.wikipedia.org/wiki/Standard-definition_television
+                # SDTV can be 4:3 or 16:9, blame the video ripper if we
+                # took the wrong guess
+                info['DAR'] = Fraction(4,3)
+
+        # pixel/sample aspect ratio
+        info['PAR'] = (info['DAR'] / info['storage'].aspect).limit_denominator(82)
+        
     def prepare_mplayer_args(self):
         if self.__info['video']:
             if '-noass' in self.args or not MPlayer().support_ass():
@@ -358,53 +405,10 @@ class Media(object):
             info = self.__info
             raw = self.__raw_info['mplayer']
             
-            # http://www.mir.com/DMG/aspect.html
-            # http://en.wikipedia.org/wiki/Pixel_aspect_ratio
-            # http://lipas.uwasa.fi/~f76998/video/conversion
             w,h = raw['ID_VIDEO_WIDTH'][0], raw['ID_VIDEO_HEIGHT'][0]
             a = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
-
-            # storage aspect ratio
-            info['storage'] = Dimension(w,h)
-
-            # display aspect ratio
-            # always assume aspects of 4:3, 16:9, and >16:9 (wide-screen
-            # movies)
-            def aspect_not_stupid(ar):
-                return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
-
-            if '-aspect' in self.args:
-                s = self.args[self.args.index('-aspect')+1]
-                if ':' in s:
-                    x,y = s.split(':')
-                    info['DAR'] = Fraction(int(x),int(y))
-                else:
-                    info['DAR'] = Fraction(s)
-            elif 'dsize' in self.args:
-                # TODO
-                pass
-            elif aspect_not_stupid(a):
-                info['DAR'] = Fraction(a).limit_denominator(9)
-            else:
-                # let's guess
-                if info['storage'].width >= 1280:
-                    # http://en.wikipedia.org/wiki/High-definition_television
-                    # HDTV is always 16:9
-                    info['DAR'] = Fraction(16,9)
-                elif info['storage'].width >= 700:
-                    # http://en.wikipedia.org/wiki/Enhanced-definition_television
-                    # EDTV can be 4:3 or 16:9, blame the video ripper if we
-                    # took the wrong guess
-                    info['DAR'] = Fraction(16,9)
-                else:
-                    # http://en.wikipedia.org/wiki/Standard-definition_television
-                    # SDTV can be 4:3 or 16:9, blame the video ripper if we
-                    # took the wrong guess
-                    info['DAR'] = Fraction(4,3)
-
-            # pixel/sample aspect ratio
-            info['PAR'] = (info['DAR'] / info['storage'].aspect).limit_denominator(82)
-
+            self.__prepare_video_geometry(w,h,a)
+            
             # non-square pixel fix
             if info['PAR'] != 1:
                 # work-around for stretched osd/subtitle after applying -aspect
@@ -420,16 +424,37 @@ class Media(object):
             # video expanding
             for item in expand_video(info['DAR'], check_screen_dim().aspect):
                 self.add_arg(item)
-
             # Subtitles
-            info['subtitle'] = defaultdict(bool)
-            if raw['ID_SUBTITLE_ID']:
-                info['subtitle']['embed'] = True
-            if raw['ID_FILE_SUB_ID']:
-                info['subtitle']['external'] = raw['ID_FILE_SUB_FILENAME']
-            if raw['ID_VOBSUB_ID']:
-                info['subtitles']['vobsub'] = True
-                
+            self.parse_available_subtitles()
+    def parse_available_subtitles(self):
+        info = self.__info
+        raw = self.__raw_info['mplayer']
+        
+        info['subtitle'] = defaultdict(bool)
+        if raw['ID_SUBTITLE_ID']:
+            # TODO: extract subtitles and combine to a bi-lingual sub
+            # ffmpeg -i Seinfeld.2x01.The_Ex-Girlfriend.xvid-TLF.mkv -vn -an -scodec srt sub.srt
+            info['subtitle']['embed'] = []
+            for i in raw['ID_SUBTITLE_ID']:
+                info['subtitle']['embed'].append(raw['ID_SID_{0}_LANG'.format(i)])
+        if raw['ID_FILE_SUB_ID']:
+            info['subtitle']['external'] = raw['ID_FILE_SUB_FILENAME']
+            logging.debug('Converting the external subtitles to UTF-8...')
+            for subfile in raw['ID_FILE_SUB_FILENAME']:
+                with open(subfile,'r+b') as f:
+                    s = f.read()
+                    enc,_,s = guess_locale_and_convert(s)
+                    if not enc in ['utf_8','ascii']:
+                        f.seek(0)
+                        f.write(s)
+            self.add_arg('-subcp utf8')
+        if raw['ID_VOBSUB_ID']:
+            info['subtitles']['vobsub'] = True
+            unrar = which('unrar')
+            if unrar:
+                self.add_arg('-unrarexec {0}'.format(unrar))
+
+        
     def add_arg(self,arg,force=False):
         never_overwritten = ['-vf-pre','-vf-add']
         arg = arg.split()
@@ -437,7 +462,7 @@ class Media(object):
             self.args += arg
 
     def __init__(self,path,global_args=[]):
-        self.args = global_args[:]
+        self.args = global_args[:] + [path]
         
         self.__info = defaultdict(bool)
         self.__raw_info = defaultdict(bool)
@@ -459,7 +484,7 @@ class Media(object):
         # handling, hence do it unconditionally
         self.__raw_info['mplayer'] = defaultdict(list)
         raw = self.__raw_info['mplayer']
-        for l in MPlayer().identify(self.args+[info['abspath']]).splitlines():
+        for l in MPlayer().identify([info['abspath']]).splitlines():
             k,_,v = l.partition('=')
             raw[k].append(v)
         if raw['ID_VIDEO_ID']:
@@ -787,42 +812,11 @@ class SubtitleHandler(object):
             
     def __init__(self, media):
         # shooter.cn
-        import httplib
-        self.__schemas = ['http', 'https'] if hasattr(httplib, 'HTTPS') else ['http']
+#        import httplib
+        self.__schemas = ['http', 'https'] #if hasattr(httplib, 'HTTPS') else ['http']
         self.__servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
         self.__splayer_rev = 2437 # as of 2012-07-02
         self.__tries = [2, 10, 30, 60, 120]
-
-        # analyze media's subtitles
-        self.__m = media
-        if self.__m['subtitles']:
-            self.__parse_text_subtitles()
-
-    def __parse_text_subtitles(self):
-        if self.__m['subtitles']['embed'] and which('ffmpeg'):
-            # TODO: extract subtitles and combine to a bi-lingual sub
-            # ffmpeg -i Seinfeld.2x01.The_Ex-Girlfriend.xvid-TLF.mkv -vn -an -scodec srt sub.srt
-            logging.debug('Parsing the embedded subtitles...')
-            for l in subprocess.check_output(['ffprobe',self.__m['abspath']], stderr=subprocess.STDOUT).splitlines():
-                if l.startswith('    Stream'):
-                    l = l.split()
-                    if l[2] == 'Subtitle:':
-                        stream = l[1][1:4]
-                        slang = l[1][5:8]
-                        scodec = l[3]
-                        logging.debug(' Embedded Subtitle: {0} {1} {2}'.format(stream, slang, scodec))
-                        if slang in ['chs','cht','chi','zh']:
-                            self.__m['subtitles']['embed'] = 'chi'
-                
-        if self.__m['subtitles']['external']:
-            logging.debug('Converting the external subtitles to UTF-8...')
-            for subfile in self.__m['subtitles']['external']:
-                with open(subfile,'r+b') as f:
-                    s = f.read()
-                    enc,_,s = guess_locale_and_convert(s)
-                    if not enc in ['utf_8','ascii']:
-                        f.seek(0)
-                        f.write(s)
 
 def expand_video(source_aspect, target_aspect):
     '''This function does 3 things:

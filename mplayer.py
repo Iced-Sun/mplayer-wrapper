@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-22 00:39:36 by subi>
+# Time-stamp: <2012-12-25 13:39:12 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -24,13 +24,9 @@
 # * detect the language in embedded subtitles, which is guaranteed to be utf8
 # * use ffprobe for better(?) metainfo detection?
 
-#from __future__ import unicode_literals
-#from __future__ import division
-
 import logging
 import os,sys
 import subprocess, threading, time
-import urllib2, struct
 from fractions import Fraction
 from collections import defaultdict
 
@@ -637,6 +633,7 @@ def parse_shooter_package(fileobj):
     f = fileobj
 
     # read contents
+    import struct
     c = f.read(1)
     package_count = struct.unpack('!b', c)[0]
 
@@ -715,6 +712,7 @@ class SubtitleHandler(object):
 #            app.send('osd_show_text "查询字幕失败." 3000')
 
         # fetch
+        import urllib2
         for i, t in enumerate(self.__tries):
             try:
                 logging.debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(self.__tries)+1))

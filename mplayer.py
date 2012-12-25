@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-25 13:39:12 by subi>
+# Time-stamp: <2012-12-25 21:53:33 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -348,7 +348,7 @@ class Media(object):
     def mplayer_args(self):
         return self.args + [self.__info['abspath']]
 
-    def prepare_args_for_mplayer(self):
+    def prepare_mplayer_args(self):
         if self.__info['video']:
             if '-noass' in self.args or not MPlayer().support_ass():
                 self.add_arg('-noass')
@@ -407,7 +407,6 @@ class Media(object):
 
             # non-square pixel fix
             if info['PAR'] != 1:
-                self.add_arg('-aspect {0.numerator}:{0.denominator}'.format(info['DAR']))
                 # work-around for stretched osd/subtitle after applying -aspect
                 sw = info['storage'].width
                 sh = info['storage'].height
@@ -415,12 +414,22 @@ class Media(object):
                     sh = int(sw / info['DAR'])
                 else:
                     sw = int(sh * info['DAR'])
+                self.add_arg('-aspect {0.numerator}:{0.denominator}'.format(info['DAR']))
                 self.add_arg('-vf-pre scale={0}:{1}'.format(sw,sh))
 
             # video expanding
             for item in expand_video(info['DAR'], check_screen_dim().aspect):
                 self.add_arg(item)
 
+            # Subtitles
+            info['subtitle'] = defaultdict(bool)
+            if raw['ID_SUBTITLE_ID']:
+                info['subtitle']['embed'] = True
+            if raw['ID_FILE_SUB_ID']:
+                info['subtitle']['external'] = raw['ID_FILE_SUB_FILENAME']
+            if raw['ID_VOBSUB_ID']:
+                info['subtitles']['vobsub'] = True
+                
     def add_arg(self,arg,force=False):
         never_overwritten = ['-vf-pre','-vf-add']
         arg = arg.split()
@@ -469,24 +478,6 @@ class Media(object):
                                      '{0.numerator}:{0.denominator}'.format(info['DAR'])))
         logging.debug('\n'+'\n'.join(log_items))
         
-class Media1(defaultdict):
-    def __probe_with_mplayer(self):
-        if info['ID_VIDEO_ID']:
-            self['video'] = True
-            # Subtitles
-            self['subtitles'] = defaultdict(bool)
-            self['log'].append('  Subtitles:')
-            if info['ID_SUBTITLE_ID']:
-                self['subtitles']['embed'] = True
-                self['log'].append('      Embedded Text')
-            if info['ID_FILE_SUB_ID']:
-                self['subtitles']['external'] = info['ID_FILE_SUB_FILENAME']
-                self['log'].append('      External Text: '
-                                   '{0}'.format(('\n'+' '*21).join(info['ID_FILE_SUB_FILENAME'])))
-            if info['ID_VOBSUB_ID']:
-                self['subtitles']['vobsub'] = True
-                self['log'].append('      Vobsub Glyph')
-
 @singleton
 class MPlayer(object):
     last_timestamp = 0.0

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-25 23:01:58 by subi>
+# Time-stamp: <2012-12-25 23:35:41 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -261,12 +261,8 @@ class Player(Application):
                 m.prepare_mplayer_args()
                 MPlayer().run(m.mplayer_args())
 #                if m['video']:
-#                    args += '-subcp utf8'.split()
 #                    if self.fifo:
 #                        args += self.fifo.args
-
-#                    use_ass = False if '-noass' in self.args or not self.mplayer.support_ass() else True
-#                    args += expand_video(m, use_ass)
 
                     # now handle subtitles
 #                    if not self.dry_run:
@@ -343,71 +339,81 @@ class MPlayerFifo(object):
             self.args = '-input file={0}'.format(self.__path).split()
         except OSError as e:
             logging.info(e)
+            
+def kick_video_geometry(width,height,DAR_advice,DAR_force=None):
+    # http://www.mir.com/DMG/aspect.html
+    # http://en.wikipedia.org/wiki/Pixel_aspect_ratio
+    # http://lipas.uwasa.fi/~f76998/video/conversion
+    # storage aspect ratio
+    storage = Dimension(width,height)
 
+    # display aspect ratio
+    # always assume aspects of 4:3, 16:9, and >16:9 (wide-screen
+    # movies)
+    def aspect_not_stupid(ar):
+        return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
+
+    if DAR_force:
+        DAR = DAR_force
+    elif aspect_not_stupid(DAR_advice):
+        DAR = Fraction(DAR_advice).limit_denominator(9)
+    else:
+        # let's guess
+        if storage.width >= 1280:
+            # http://en.wikipedia.org/wiki/High-definition_television
+            # HDTV is always 16:9
+            DAR = Fraction(16,9)
+        elif storage.width >= 700:
+            # http://en.wikipedia.org/wiki/Enhanced-definition_television
+            # EDTV can be 4:3 or 16:9, blame the video ripper if we
+            # took the wrong guess
+            DAR = Fraction(16,9)
+        else:
+            # http://en.wikipedia.org/wiki/Standard-definition_television
+            # SDTV can be 4:3 or 16:9, blame the video ripper if we
+            # took the wrong guess
+            DAR = Fraction(4,3)
+
+    # pixel/sample aspect ratio
+    PAR = (DAR / storage.aspect).limit_denominator(82)
+
+    return storage, DAR, PAR
+    
 class Media(object):
     def mplayer_args(self):
         return self.args
 
-    def __prepare_video_geometry(self, w, h, a):
-        # http://www.mir.com/DMG/aspect.html
-        # http://en.wikipedia.org/wiki/Pixel_aspect_ratio
-        # http://lipas.uwasa.fi/~f76998/video/conversion
+    def prepare_mplayer_args(self):
         info = self.__info
 
-        # storage aspect ratio
-        info['storage'] = Dimension(w,h)
+        self.__raw_info['mplayer'] = defaultdict(list)
+        raw = self.__raw_info['mplayer']
+            
+        for l in MPlayer().identify([info['abspath']]).splitlines():
+            k,_,v = l.partition('=')
+            raw[k].append(v)
+        if raw['ID_VIDEO_ID']:
+            info['video'] = True
 
-        # display aspect ratio
-        # always assume aspects of 4:3, 16:9, and >16:9 (wide-screen
-        # movies)
-        def aspect_not_stupid(ar):
-            return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
-
-        if '-aspect' in self.args:
-            s = self.args[self.args.index('-aspect')+1]
-            if ':' in s:
-                x,y = s.split(':')
-                info['DAR'] = Fraction(int(x),int(y))
-            else:
-                info['DAR'] = Fraction(s)
-        elif 'dsize' in self.args:
-            # TODO
-            pass
-        elif aspect_not_stupid(a):
-            info['DAR'] = Fraction(a).limit_denominator(9)
-        else:
-            # let's guess
-            if info['storage'].width >= 1280:
-                # http://en.wikipedia.org/wiki/High-definition_television
-                # HDTV is always 16:9
-                info['DAR'] = Fraction(16,9)
-            elif info['storage'].width >= 700:
-                # http://en.wikipedia.org/wiki/Enhanced-definition_television
-                # EDTV can be 4:3 or 16:9, blame the video ripper if we
-                # took the wrong guess
-                info['DAR'] = Fraction(16,9)
-            else:
-                # http://en.wikipedia.org/wiki/Standard-definition_television
-                # SDTV can be 4:3 or 16:9, blame the video ripper if we
-                # took the wrong guess
-                info['DAR'] = Fraction(4,3)
-
-        # pixel/sample aspect ratio
-        info['PAR'] = (info['DAR'] / info['storage'].aspect).limit_denominator(82)
-        
-    def prepare_mplayer_args(self):
         if self.__info['video']:
             if '-noass' in self.args or not MPlayer().support_ass():
                 self.add_arg('-noass')
             else:
                 self.add_arg('-ass')
 
-            info = self.__info
-            raw = self.__raw_info['mplayer']
-            
+            if '-aspect' in self.args:
+                s = self.args[self.args.index('-aspect')+1]
+                if ':' in s:
+                    x,y = s.split(':')
+                    DAR_force = Fraction(int(x),int(y))
+                else:
+                    DAR_force = Fraction(s)
+            elif 'dsize' in self.args:
+                # TODO
+                pass
             w,h = raw['ID_VIDEO_WIDTH'][0], raw['ID_VIDEO_HEIGHT'][0]
             a = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
-            self.__prepare_video_geometry(w,h,a)
+            info['storage'], info['DAR'], info['PAR'] = kick_video_geometry(w,h,a)
             
             # non-square pixel fix
             if info['PAR'] != 1:
@@ -424,9 +430,11 @@ class Media(object):
             # video expanding
             for item in expand_video(info['DAR'], check_screen_dim().aspect):
                 self.add_arg(item)
-            # Subtitles
-            self.parse_available_subtitles()
-    def parse_available_subtitles(self):
+
+            # subtitles
+            self.parse_local_subtitles()
+
+    def parse_local_subtitles(self):
         info = self.__info
         raw = self.__raw_info['mplayer']
         
@@ -449,12 +457,26 @@ class Media(object):
                         f.write(s)
             self.add_arg('-subcp utf8')
         if raw['ID_VOBSUB_ID']:
-            info['subtitles']['vobsub'] = True
+            info['subtitle']['vobsub'] = True
             unrar = which('unrar')
             if unrar:
                 self.add_arg('-unrarexec {0}'.format(unrar))
-
         
+    def fetch_remote_subtitles(self):
+        if not self.__m['subtitles']:
+            # no subtitles
+            self.fetch()
+        elif self.__m['subtitles']['embed'] == 'chi' or self.__m['subtitles']['external']:
+            # already have Chinese text subtitles
+            pass
+        else:
+            # whatever
+            self.fetch()
+
+        if self.__m['subtitles']['shooter']:
+            self.force_utf8_and_filter_duplicates()
+            self.save_to_disk()
+    
     def add_arg(self,arg,force=False):
         never_overwritten = ['-vf-pre','-vf-add']
         arg = arg.split()
@@ -479,16 +501,6 @@ class Media(object):
             with open(info['path'],'rb') as f:
                 import hashlib
                 info['shash'] = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
-
-        # mplayer-probed info are required by both video-expanding and subtitle
-        # handling, hence do it unconditionally
-        self.__raw_info['mplayer'] = defaultdict(list)
-        raw = self.__raw_info['mplayer']
-        for l in MPlayer().identify([info['abspath']]).splitlines():
-            k,_,v = l.partition('=')
-            raw[k].append(v)
-        if raw['ID_VIDEO_ID']:
-            info['video'] = True
 
     def __del__(self):
         if not config['debug']:
@@ -686,21 +698,6 @@ def parse_shooter_package(fileobj):
     return subtitles
 
 class SubtitleHandler(object):
-    def run(self):
-        if not self.__m['subtitles']:
-            # no subtitles
-            self.fetch()
-        elif self.__m['subtitles']['embed'] == 'chi' or self.__m['subtitles']['external']:
-            # already have Chinese text subtitles
-            pass
-        else:
-            # whatever
-            self.fetch()
-
-        if self.__m['subtitles']['shooter']:
-            self.force_utf8_and_filter_duplicates()
-            self.save_to_disk()
-        
     def fetch(self):
         # generate data for submission
         filehash = self.__m['shash']

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-25 23:35:41 by subi>
+# Time-stamp: <2012-12-26 23:49:50 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -27,6 +27,7 @@
 import logging
 import os,sys
 import subprocess, threading, time
+import hashlib
 from fractions import Fraction
 from collections import defaultdict
 
@@ -259,42 +260,23 @@ class Player(Application):
                 args = []
                 m = Media(f, self.args['valid'])
                 m.prepare_mplayer_args()
+                if m.is_video():
+                    if self.fifo:
+                        m.add_arg(self.fifo.args)
+
+                    fetch_thread = threading.Thread(target=m.fetch_remote_subtitles_and_save)
+                    fetch_thread.daemon = True
+                    fetch_thread.start()
+
                 MPlayer().run(m.mplayer_args())
-#                if m['video']:
-#                    if self.fifo:
-#                        args += self.fifo.args
-
-                    # now handle subtitles
-#                    if not self.dry_run:
-#                        need_fetch = True
-#                        for subs in m['subtitles']:
-#                            if subs[0] == 'External Text':
-#                                need_fetch = False
-#                            elif subs[0] == 'Embedded Text':
-#                                need_fetch = False
-#                            else:
-#                                pass
-#                        if need_fetch:
-                            # so we have to weakref self to break the implicit
-                            # circular references.
-#                            import weakref
-#                            fetch_thread = threading.Thread(target=SubFetcher().fetch, args=(m['fullpath'],m['hash'],weakref.ref(self)))
-#                            fetch_thread = threading.Thread(target=SubFetcher().fetch, args=(m['fullpath'],m['hash'],self))
-#                            fetch_thread.daemon = True
-#                            fetch_thread.start()
-
-#                args += self.args
-#                args += [f]
-
-#                self.mplayer.run(args)
                 if MPlayer().last_exit_status == 'Quit':
                     break
 
 class Fetcher(Application):
     def run(self):
         for f in self.files:
-            m = Media(f)
-            if m['abspath']: SubtitleHandler(m).run()
+            Media(f).fetch_remote_subtitles_and_save(self.savedir)
+            
     def __init__(self, args):
         self.savedir = None
         self.files = []
@@ -336,7 +318,7 @@ class MPlayerFifo(object):
         try:
             os.mkfifo(self.__path)
             atexit.register(lambda f: os.unlink(f), self.__path)
-            self.args = '-input file={0}'.format(self.__path).split()
+            self.args = '-input file={0}'.format(self.__path)
         except OSError as e:
             logging.info(e)
             
@@ -373,25 +355,32 @@ def kick_video_geometry(width,height,DAR_advice,DAR_force=None):
             # SDTV can be 4:3 or 16:9, blame the video ripper if we
             # took the wrong guess
             DAR = Fraction(4,3)
-
     # pixel/sample aspect ratio
     PAR = (DAR / storage.aspect).limit_denominator(82)
-
     return storage, DAR, PAR
     
 class Media(object):
+    def is_video(self):
+        return self.__info['video']
+    
     def mplayer_args(self):
         return self.args
 
     def prepare_mplayer_args(self):
+        # always do unrar in case we have rar-ed vobsub files.
+        unrar = which('unrar')
+        if unrar:
+            self.add_arg('-unrarexec {0}'.format(unrar))
+            
         info = self.__info
-
+        # collect media info by midentify
         self.__raw_info['mplayer'] = defaultdict(list)
         raw = self.__raw_info['mplayer']
-            
-        for l in MPlayer().identify([info['abspath']]).splitlines():
+
+        for l in MPlayer().identify(self.args).splitlines():
             k,_,v = l.partition('=')
             raw[k].append(v)
+            
         if raw['ID_VIDEO_ID']:
             info['video'] = True
 
@@ -444,7 +433,7 @@ class Media(object):
             # ffmpeg -i Seinfeld.2x01.The_Ex-Girlfriend.xvid-TLF.mkv -vn -an -scodec srt sub.srt
             info['subtitle']['embed'] = []
             for i in raw['ID_SUBTITLE_ID']:
-                info['subtitle']['embed'].append(raw['ID_SID_{0}_LANG'.format(i)])
+                info['subtitle']['embed'] += raw['ID_SID_{0}_LANG'.format(i)]
         if raw['ID_FILE_SUB_ID']:
             info['subtitle']['external'] = raw['ID_FILE_SUB_FILENAME']
             logging.debug('Converting the external subtitles to UTF-8...')
@@ -458,25 +447,28 @@ class Media(object):
             self.add_arg('-subcp utf8')
         if raw['ID_VOBSUB_ID']:
             info['subtitle']['vobsub'] = True
-            unrar = which('unrar')
-            if unrar:
-                self.add_arg('-unrarexec {0}'.format(unrar))
         
-    def fetch_remote_subtitles(self):
-        if not self.__m['subtitles']:
-            # no subtitles
-            self.fetch()
-        elif self.__m['subtitles']['embed'] == 'chi' or self.__m['subtitles']['external']:
-            # already have Chinese text subtitles
+    def fetch_remote_subtitles_and_save(self, sub_savedir=None):
+        info = self.__info
+
+        if not info['subtitle']:
+            # if not done parse_local_subtitles
+            info['subtitle'] = defaultdict(bool)
+
+        if info['subtitle']['embed'] and set(info['subtitle']['embed'])&set(['chs','cht','chn','chi','zh','tw','hk']):
+            # have Chinese text subtitles
+            pass
+        elif info['subtitle']['external']:
+            # TODO: language?
             pass
         else:
             # whatever
-            self.fetch()
+            info['subtitle']['remote'] = fetch_shooter(info['abspath'],info['shash'])
 
-        if self.__m['subtitles']['shooter']:
-            self.force_utf8_and_filter_duplicates()
-            self.save_to_disk()
-    
+        if info['subtitle']['remote']:
+            force_utf8_and_filter_duplicates(info['subtitle']['remote'])
+            save_to_disk(info['subtitle']['remote'], info['abspath'], sub_savedir)
+
     def add_arg(self,arg,force=False):
         never_overwritten = ['-vf-pre','-vf-add']
         arg = arg.split()
@@ -499,7 +491,6 @@ class Media(object):
         sz = os.path.getsize(info['path'])
         if sz>8192:
             with open(info['path'],'rb') as f:
-                import hashlib
                 info['shash'] = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
 
     def __del__(self):
@@ -653,6 +644,48 @@ class MPlayer(object):
         logging.debug('Last exit status: {0}'.format(self.last_exit_status))
         self.__process = None
 
+def save_to_disk(subtitles, filepath, save_dir=None):
+    if save_dir:
+        prefix = os.path.join(save_dir, os.path.splitext(os.path.basename(filepath))[0])
+    else:
+        prefix,_ = os.path.splitext(filepath)
+
+    # save subtitles
+    for s in subtitles:
+        suffix = '.' + s['lang'] if not s['lang'] == 'und' else ''
+                
+        path = prefix + suffix + '.' + s['extension']
+        if os.path.exists(path):
+            path = prefix + suffix + '1.' + s['extension']
+        with open(path,'wb') as f:
+            f.write(s['content'])
+            logging.info('Saved the subtitle as {0}'.format(path))
+            s['path'] = path
+
+def force_utf8_and_filter_duplicates(subtitles):
+    logging.debug('Trying to filter duplicated subtitles...')
+
+    for s in subtitles:
+        _,s['lang'],s['content'] = guess_locale_and_convert(s['content'])
+            
+    dup_tag = [False]*len(subtitles)
+    for i in range(len(subtitles)):
+        if dup_tag[i]:
+            continue
+        for j in range(i+1, len(subtitles)):
+            sa = subtitles[i]
+            sb = subtitles[j]
+            if sa['extension'] != sb['extension'] or sa['lang'] != sb['lang']:
+                continue
+            import difflib
+            similarity = difflib.SequenceMatcher(None, sa['content'], sb['content']).real_quick_ratio()
+            logging.debug('Similarity is {0}.'.format(similarity))
+            if similarity > 0.9:
+                dup_tag[j] = True
+    # TODO: reserve longer subtitles 
+    subtitles = [subtitles[i] for i in range(len(subtitles)) if not dup_tag[i]]
+    logging.debug('{0} subtitle(s) reserved after duplicates filtering.'.format(len(subtitles)))
+
 def parse_shooter_package(fileobj):
     '''Parse shooter returned package of subtitles.
     Return subtitles encoded in UTF-8.
@@ -697,109 +730,67 @@ def parse_shooter_package(fileobj):
     logging.debug('{0} subtitle(s) fetched.'.format(len(subtitles)))
     return subtitles
 
-class SubtitleHandler(object):
-    def fetch(self):
-        # generate data for submission
-        filehash = self.__m['shash']
-        head,tail = os.path.split(self.__m['abspath'])
-        pathinfo= '\\'.join(['D:', os.path.basename(head), tail])
-        vstring = 'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(self.__splayer_rev, pathinfo, filehash)
-        vhash = hashlib.md5(vstring).hexdigest()
-        import random
-        boundary = '-'*28 + '{0:x}'.format(random.getrandbits(48))
+def fetch_shooter(filepath,filehash):
+    import httplib
+    schemas = ['http', 'https'] if hasattr(httplib, 'HTTPS') else ['http']
+    servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
+    splayer_rev = 2437 # as of 2012-07-02
+    tries = [2, 10, 30, 60, 120]
 
-        header = [('User-Agent', 'SPlayer Build {0}'.format(self.__splayer_rev)),
-                  ('Content-Type', 'multipart/form-data; boundary={0}'.format(boundary))
-                  ]
-        items = [('filehash', filehash), ('pathinfo', pathinfo), ('vhash', vhash)]
-        data = ''.join(['--{0}\n'
-                        'Content-Disposition: form-data; name="{1}"\n\n'
-                        '{2}\n'.format(boundary, *d) for d in items]
-                       + ['--' + boundary + '--'])
+    # generate data for submission
+    head,tail = os.path.split(filepath)
+    pathinfo= '\\'.join(['D:', os.path.basename(head), tail])
+    vstring = 'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(splayer_rev, pathinfo, filehash)
+    vhash = hashlib.md5(vstring).hexdigest()
+    import random
+    boundary = '-'*28 + '{0:x}'.format(random.getrandbits(48))
 
-        if config['dry-run']:
-            print 'DRY-RUN: Were trying to fetch subtitles for {0}.'.format(self.__m['abspath'])
-            return
+    header = [('User-Agent', 'SPlayer Build {0}'.format(splayer_rev)),
+              ('Content-Type', 'multipart/form-data; boundary={0}'.format(boundary))
+              ]
+    items = [('filehash', filehash), ('pathinfo', pathinfo), ('vhash', vhash)]
+    data = ''.join(['--{0}\n'
+                    'Content-Disposition: form-data; name="{1}"\n\n'
+                    '{2}\n'.format(boundary, *d) for d in items]
+                   + ['--' + boundary + '--'])
+
+    if config['dry-run']:
+        print 'DRY-RUN: Were trying to fetch subtitles for {0}.'.format(filepath)
+        return None
         
 #        app.send('osd_show_text "正在查询字幕..." 5000')
 #            app.send('osd_show_text "查询字幕失败." 3000')
 
-        # fetch
-        import urllib2
-        for i, t in enumerate(self.__tries):
-            try:
-                logging.debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(self.__tries)+1))
-                time.sleep(t)
+    # fetch
+    import urllib2
+    for i, t in enumerate(tries):
+        try:
+            logging.debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(tries)+1))
+            time.sleep(t)
 
-                url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(self.__schemas),
-                                                                   random.choice(self.__servers))
-                req = urllib2.Request(url)
-                for h in header: req.add_header(*h)
-                req.add_data(data)
-                logging.debug('Connecting server {0} with the submission:\n'
-                              '\n{1}\n'
-                              '{2}\n'.format(url,
-                                             '\n'.join(['{0}:{1}'.format(*h) for h in header]),
-                                             data))
+            url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(schemas), random.choice(servers))
+            req = urllib2.Request(url)
+            for h in header:
+                req.add_header(*h)
+            req.add_data(data)
+            logging.debug('Connecting server {0} with the submission:\n'
+                          '\n{1}\n'
+                          '{2}\n'.format(url,
+                                         '\n'.join(['{0}:{1}'.format(*h) for h in header]),
+                                         data))
 
-                # todo: with context manager
-                response = urllib2.urlopen(req)
-                self.__m['subtitles']['shooter'] = parse_shooter_package(response)
-                response.close()
+            # todo: with context manager
+            response = urllib2.urlopen(req)
+            fetched_subtitles = parse_shooter_package(response)
+            response.close()
 
-                if self.__m['subtitles']['shooter']:
-                    break
-            except urllib2.URLError, e:
-                logging.debug(e)
-        return
+            if fetched_subtitles:
+                break
+        except urllib2.URLError, e:
+            logging.debug(e)
+    return fetched_subtitles
 
-    def force_utf8_and_filter_duplicates(self):
-        logging.debug('Trying to filter duplicated subtitles...')
-
-        subs = self.__m['subtitles']['shooter']
-        
-        for s in subs:
-            _,s['lang'],s['content'] = guess_locale_and_convert(s['content'])
-            
-        dup_tag = [False]*len(subs)
-        for i in range(len(subs)):
-            if dup_tag[i]:
-                continue
-            for j in range(i+1, len(subs)):
-                sa = subs[i]
-                sb = subs[j]
-                if sa['extension'] != sb['extension'] or sa['lang'] != sb['lang']:
-                    continue
-                import difflib
-                similarity = difflib.SequenceMatcher(None, sa['content'], sb['content']).real_quick_ratio()
-                logging.debug('Similarity is {0}.'.format(similarity))
-                if similarity > 0.7:
-                    dup_tag[j] = True
-        # TODO: reserve longer subtitles 
-        subs = [subs[i] for i in range(len(subs)) if not dup_tag[i]]
-        logging.debug('{0} subtitle(s) reserved after duplicates filtering.'.format(len(subs)))
-
-    def save_to_disk(self, save_dir=None):
-        if save_dir:
-            prefix = os.path.join(save_dir, os.path.splitext(os.path.basename(self.__m['abspath']))[0])
-        else:
-            prefix,_ = os.path.splitext(self.__m['abspath'])
-
-        # save subtitles
-        for i,s in enumerate(self.__m['subtitles']['shooter']):
-            if s['lang'] == 'und':
-                suffix = str(i) if i>0 else ''
-            else:
-                suffix = '.' + s['lang']
-                
-            path = prefix + suffix + '.' + s['extension']
-            if os.path.exists(path):
-                path = prefix + suffix + '1.' + s['extension']
-            with open(path,'wb') as f:
-                f.write(s['content'])
-                logging.info('Saved the subtitle as {0}'.format(path))
-                s['path'] = path
-                
+class SubtitleHandler(object):
     def load():
         
 #            app.send('sub_load "{0}"'.format(path))
@@ -807,14 +798,6 @@ class SubtitleHandler(object):
 #        app.send('sub_file 0')
         pass
             
-    def __init__(self, media):
-        # shooter.cn
-#        import httplib
-        self.__schemas = ['http', 'https'] #if hasattr(httplib, 'HTTPS') else ['http']
-        self.__servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
-        self.__splayer_rev = 2437 # as of 2012-07-02
-        self.__tries = [2, 10, 30, 60, 120]
-
 def expand_video(source_aspect, target_aspect):
     '''This function does 3 things:
     1. Video Expansion:

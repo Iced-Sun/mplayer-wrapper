@@ -1,8 +1,8 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 #
-# Copyright 2010-2012 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2012-12-26 23:49:50 by subi>
+# Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
+# Time-stamp: <2013-01-01 22:01:39 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -219,8 +219,6 @@ class Identifier(Application):
 class Player(Application):
     def __init__(self, args):
         super(Player, self).__init__(args)
-
-        self.fifo = MPlayerFifo() if not config['dry_run'] else None
         self.args = defaultdict(list)
         
         while args:
@@ -244,12 +242,6 @@ class Player(Application):
         if self.args['invalid']:
             logging.info('Unsupported options "' + ' '.join(self.args['invalid']) + '" are automatically suppressed.')
 
-    def send(self, cmd):
-        if MPlayer().has_active_instance():
-            self.fifo.send(cmd)
-        else:
-            logging.debug('Command "{0}" discarded.'.format(cmd))
-            
     def run(self):
         files = generate_filelist(self.args['file'])
 
@@ -261,21 +253,18 @@ class Player(Application):
                 m = Media(f, self.args['valid'])
                 m.prepare_mplayer_args()
                 if m.is_video():
-                    if self.fifo:
-                        m.add_arg(self.fifo.args)
-
-                    fetch_thread = threading.Thread(target=m.fetch_remote_subtitles_and_save)
+                    fetch_thread = threading.Thread(target=m.fetch_remote_subtitles_and_save, args=(None,True))
                     fetch_thread.daemon = True
                     fetch_thread.start()
 
-                MPlayer().run(m.mplayer_args())
+                MPlayer().play(m)
                 if MPlayer().last_exit_status == 'Quit':
                     break
 
 class Fetcher(Application):
     def run(self):
         for f in self.files:
-            Media(f).fetch_remote_subtitles_and_save(self.savedir)
+            Media(f).fetch_remote_subtitles_and_save(sub_savedir=self.savedir)
             
     def __init__(self, args):
         self.savedir = None
@@ -294,11 +283,11 @@ class MPlayerFifo(object):
     '''
     def send(self, s):
         if self.args:
-            logging.debug('Sending command "{0}" to {1}...'.format(s, self.__path))
+            logging.debug('Sending message "{0}" to {1}...'.format(s, self.__path))
             with open(self.__path,'w') as f:
                 f.write(s+'\n')
         else:
-            logging.info('"{0}" cannot be sent to the unexist {1}.'.format(s, self.__path))
+            logging.info('"{0}" cannot be sent to the non-existing {1}.'.format(s, self.__path))
     
     def __init__(self):
         # don't use __del__() to release resource because MPlayerFifo tends to
@@ -322,16 +311,19 @@ class MPlayerFifo(object):
         except OSError as e:
             logging.info(e)
             
-def kick_video_geometry(width,height,DAR_advice,DAR_force=None):
-    # http://www.mir.com/DMG/aspect.html
-    # http://en.wikipedia.org/wiki/Pixel_aspect_ratio
-    # http://lipas.uwasa.fi/~f76998/video/conversion
+def refine_video_geometry(width,height,DAR_advice,DAR_force=None):
+    ''' Guess the best video geometry.
+    
+    References:
+    1. http://www.mir.com/DMG/aspect.html
+    2. http://en.wikipedia.org/wiki/Pixel_aspect_ratio
+    3. http://lipas.uwasa.fi/~f76998/video/conversion
+    '''
     # storage aspect ratio
     storage = Dimension(width,height)
 
-    # display aspect ratio
-    # always assume aspects of 4:3, 16:9, and >16:9 (wide-screen
-    # movies)
+    # DAR(display aspect ratio): assume aspects of 4:3, 16:9, or >16:9
+    # (wide-screen movies)
     def aspect_not_stupid(ar):
         return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
 
@@ -372,7 +364,6 @@ class Media(object):
         if unrar:
             self.add_arg('-unrarexec {0}'.format(unrar))
             
-        info = self.__info
         # collect media info by midentify
         self.__raw_info['mplayer'] = defaultdict(list)
         raw = self.__raw_info['mplayer']
@@ -381,10 +372,10 @@ class Media(object):
             k,_,v = l.partition('=')
             raw[k].append(v)
             
+        info = self.__info
         if raw['ID_VIDEO_ID']:
             info['video'] = True
 
-        if self.__info['video']:
             if '-noass' in self.args or not MPlayer().support_ass():
                 self.add_arg('-noass')
             else:
@@ -402,7 +393,7 @@ class Media(object):
                 pass
             w,h = raw['ID_VIDEO_WIDTH'][0], raw['ID_VIDEO_HEIGHT'][0]
             a = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
-            info['storage'], info['DAR'], info['PAR'] = kick_video_geometry(w,h,a)
+            info['storage'], info['DAR'], info['PAR'] = refine_video_geometry(w,h,a)
             
             # non-square pixel fix
             if info['PAR'] != 1:
@@ -448,11 +439,11 @@ class Media(object):
         if raw['ID_VOBSUB_ID']:
             info['subtitle']['vobsub'] = True
         
-    def fetch_remote_subtitles_and_save(self, sub_savedir=None):
+    def fetch_remote_subtitles_and_save(self, sub_savedir=None, load_in_mplayer=False):
         info = self.__info
 
         if not info['subtitle']:
-            # if not done parse_local_subtitles
+            # if parse_local_subtitles() not done
             info['subtitle'] = defaultdict(bool)
 
         if info['subtitle']['embed'] and set(info['subtitle']['embed'])&set(['chs','cht','chn','chi','zh','tw','hk']):
@@ -469,6 +460,11 @@ class Media(object):
             force_utf8_and_filter_duplicates(info['subtitle']['remote'])
             save_to_disk(info['subtitle']['remote'], info['abspath'], sub_savedir)
 
+            if load_in_mplayer:
+                for s in info['subtitle']['remote']:
+                    MPlayer().send('sub_load "{0}"'.format(s['path']))
+                MPlayer().send('sub_file 0')
+            
     def add_arg(self,arg,force=False):
         never_overwritten = ['-vf-pre','-vf-add']
         arg = arg.split()
@@ -511,8 +507,13 @@ class MPlayer(object):
     last_timestamp = 0.0
     last_exit_status = None
 
-    def run(self, args):
-        args = [self.exe_path] + args
+    def send(self, cmd):
+        if self.__process != None:
+            self.__fifo.send(cmd)
+        
+    def play(self, media):
+        media.add_arg(self.__fifo.args)
+        args = [self.exe_path] + media.mplayer_args()
         logging.debug('\n'+' '.join(args))
         if not config['dry-run']:
             self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
@@ -524,9 +525,6 @@ class MPlayer(object):
             logging.debug('Executing:\n  {0}'.format(' '.join(args)))
         return '\n'.join([l for l in subprocess.check_output(args).splitlines() if l.startswith('ID_')])
 
-    def has_active_instance(self):
-        return self.__process != None
-    
     def support_ass(self):
         if self.__ass == None:
             self.__ass = True
@@ -570,6 +568,7 @@ class MPlayer(object):
                 self.exe_path = p
                 break
 
+        self.__fifo = MPlayerFifo()
         self.__mplayer2 = None
         self.__ass = None
         self.__opts = {}
@@ -645,10 +644,9 @@ class MPlayer(object):
         self.__process = None
 
 def save_to_disk(subtitles, filepath, save_dir=None):
+    prefix,_ = os.path.splitext(filepath)
     if save_dir:
-        prefix = os.path.join(save_dir, os.path.splitext(os.path.basename(filepath))[0])
-    else:
-        prefix,_ = os.path.splitext(filepath)
+        prefix = os.path.join(save_dir, os.path.basename(prefix))
 
     # save subtitles
     for s in subtitles:
@@ -790,14 +788,6 @@ def fetch_shooter(filepath,filehash):
             logging.debug(e)
     return fetched_subtitles
 
-class SubtitleHandler(object):
-    def load():
-        
-#            app.send('sub_load "{0}"'.format(path))
-#            app.send('sub_delay "{0}"'.format(s['delay']))
-#        app.send('sub_file 0')
-        pass
-            
 def expand_video(source_aspect, target_aspect):
     '''This function does 3 things:
     1. Video Expansion:

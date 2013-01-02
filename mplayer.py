@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-01 22:01:39 by subi>
+# Time-stamp: <2013-01-02 16:29:10 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -243,7 +243,7 @@ class Player(Application):
             logging.info('Unsupported options "' + ' '.join(self.args['invalid']) + '" are automatically suppressed.')
 
     def run(self):
-        files = generate_filelist(self.args['file'])
+        files = find_more_episodes(self.args['file'][-1])
 
         if not files:
             MPlayer().run(self.args['valid'])
@@ -348,7 +348,7 @@ def refine_video_geometry(width,height,DAR_advice,DAR_force=None):
             # took the wrong guess
             DAR = Fraction(4,3)
     # pixel/sample aspect ratio
-    PAR = (DAR / storage.aspect).limit_denominator(82)
+    PAR = (DAR/storage.aspect).limit_denominator(82)
     return storage, DAR, PAR
     
 class Media(object):
@@ -957,51 +957,47 @@ def expand_video(source_aspect, target_aspect):
 
     return args
        
-def generate_filelist(files):
-    '''Generate a list for continuous playing.
+def find_more_episodes(filepath):
+    '''Try to find some following episodes/parts.
     '''
-    if not len(files)==1 or not os.path.exists(files[0]):
-        return files
-        
     def translate(s):
         import locale
         dic = dict(zip(u'零壹贰叁肆伍陆柒捌玖〇一二三四五六七八九','01234567890123456789'))
-        loc = locale.getdefaultlocale()
-        s = s.decode(loc[1])
-        return ''.join([dic.get(c,c) for c in s]).encode(loc[1])
+        enc = sys.getfilesystemencoding()
+        s = s.decode(enc)
+        return ''.join([dic.get(c,c) for c in s]).encode(enc)
     def split_by_int(s):
         import re
-        return [x for x in re.split('(\d+)', translate(s)) if x != '']
-    def make_sort_key(s):
-        return [(int(x) if x.isdigit() else x) for x in split_by_int(s)]
+        return [(int(x) if x.isdigit() else x) for x in re.split('(\d+)', translate(s)) if x != '']
     def strip_to_int(s,prefix):
         if prefix and prefix in s:
-            s = s.partition(prefix)[2]
-        s = split_by_int(s)[0]
-        return int(s) if s.isdigit() else float('NaN')
-    
-    pdir, basename = os.path.split(os.path.abspath(files[0]))
+            _,_,s = s.partition(prefix)
+            return split_by_int(s)[0]
+        else:
+            return -1
 
+    if not os.path.exists(filepath):
+        return [filepath]
+    
+    pdir, basename = os.path.split(os.path.abspath(filepath))
     # basic candidate filtering
     # 1. extention
     files = [f for f in os.listdir(pdir) if f.endswith(os.path.splitext(basename)[1])]
     # 2. remove previous episodes
-    files.sort(key=make_sort_key)
+    files.sort(key=split_by_int)
     del files[0:files.index(basename)]
 
     # not necessary to go further if only one candidate
     if len(files) == 1:
-        return [os.path.join(pdir,basename)]
+        return [filepath]
 
     # find the common prefix
-    keys = [split_by_int(f) for f in files[0:2]]
-    prefix_items = []
-    for key in zip(keys[0],keys[1]):
-        if key[0] == key[1]:
-            prefix_items.append(key[0])
-        else:
-            break
-    prefix = ''.join(prefix_items)
+    i_break = 0
+    for i in range(min(len(files[0]),len(files[1]))):
+        if not files[0][i] == files[1][i]:
+           i_break = i
+           break
+    prefix = files[0][0:i_break]
 
     # generate the list
     results = [os.path.join(pdir,files[0])]

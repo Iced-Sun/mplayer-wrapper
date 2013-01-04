@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-04 10:50:23 by subi>
+# Time-stamp: <2013-01-04 22:51:48 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -81,22 +81,34 @@ class Dimension(object):
 
 def guess_locale_and_convert(s, precise=False):
     ascii = '[\x09\x0A\x0D\x20-\x7E]'
+
+    # http://en.wikipedia.org/wiki/GBK
     gbk = ['[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
            '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
            '[\x81-\xA0][\x40-\x7E\x80-\xFE]',     # Level GBK/3
            '[\xAA-\xFE][\x40-\x7E\x80-\xA0]',     # Level GBK/4
-           '[\xA8-\xA9][\x40-\x7E\x80-\xA0]']     # Level GBK/5
-    big5 = ['[\xA1-\xA2][\x40-\x7E\xA1-\xFE]',
-            '\xA3[\x40-\x7E\xA1-\xBF]',           # Special symbols
+           '[\xA8-\xA9][\x40-\x7E\x80-\xA0]',     # Level GBK/5
+           '[\xAA-\xAF][\xA1-\xFE]',              # user-defined
+           '[\xF8-\xFE][\xA1-\xFE]',              # user-defined
+           '[\xA1-\xA7][\x40-\x7E\x80-\xA0]']     # user-defined
+    gb2312 = gbk[0:2]
+
+    # http://en.wikipedia.org/wiki/Big5
+    # http://www.khngai.com/chinese/charmap/tblbig.php?page=0
+    big5 = ['[\x81-\A0][\x40-\x7E\xA1-\xFE]',     # Reserved for user-defined characters
+            '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]',    # "Graphical characters"
+            '\xA3[\x40-\x7E\xA1-\xBF]',
             '\xA3[\xC0-\xFE]',                    # Reserved, not for user-defined characters
-            '[\xA4-\xC5][\x40-\x7E\xA1-\xFE]',
-            '\xC6[\x40-\x7E]',                    # Frequently used characters
-            '\xC6[\xA1-\xFE]',
-            '[\xC7\xC8][\x40-\x7E\xA1-\xFE]',     # Reserved for user-defined characters
-            '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]',
-            '\xF9[\x40-\x7E\xA1-\xD5]',           # Less frequently used characters
-            '\xF9[\xD6-\xFE]',
-            '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]']    # Reserved for user-defined characters
+            '[\xA4-\xC5][\x40-\x7E\xA1-\xFE]',    # Frequently used characters
+            '\xC6[\x40-\x7E]',
+            '\xC6[\xA1-\xFE]',                    # Reserved for user-defined characters
+            '[\xC7\xC8][\x40-\x7E\xA1-\xFE]',
+            '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]',    # Less frequently used characters
+            '\xF9[\x40-\x7E\xA1-\xD5]',
+            '\xF9[\xD6-\xFE]',                    # Reserved for user-defined characters
+            '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]']    
+
+    # http://www.w3.org/International/questions/qa-forms-utf-8
     utf_8 = ['[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
              '\xE0[\xA0-\xBF][\x80-\xBF]',        # excluding overlongs
              '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}', # straight 3-byte
@@ -164,7 +176,6 @@ def guess_locale_and_convert(s, precise=False):
     # To guess the encoding of a byte string, we count the bytes those cannot
     # be interpreted by the codec.
     if count_in_codec(utf_8)[2] < threshold:
-        # http://www.w3.org/International/questions/qa-forms-utf-8
         enc = 'utf_8'
     elif precise:
         # GB2312 and BIG5 share lots of code points and hence sometimes we need

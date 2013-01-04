@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-04 10:17:59 by subi>
+# Time-stamp: <2013-01-04 10:35:44 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -249,18 +249,20 @@ class Player(Application):
             files = self.args['file'] + find_more_episodes(self.args['file'][-1])
 
             for f in files:
-                args = []
                 m = Media(f, self.args['valid'])
                 m.prepare_mplayer_args()
-                if m.is_video():
-                    fetch_thread = threading.Thread(target=m.fetch_remote_subtitles_and_save, args=(None,True))
-                    fetch_thread.daemon = True
-                    fetch_thread.start()
+                watch_thread = threading.Thread(target=self.watch, args=(m,))
+                watch_thread.daemon = True
+                watch_thread.start()
 
                 MPlayer().play(m)
                 if MPlayer().last_exit_status == 'Quit':
                     break
 
+    def watch(self, media):
+        if media.is_video():
+            media.fetch_remote_subtitles_and_save(load_in_mplayer=True)
+            
 class Fetcher(Application):
     def run(self):
         for f in self.files:

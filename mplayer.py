@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-03 00:34:52 by subi>
+# Time-stamp: <2013-01-04 10:17:59 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -243,11 +243,11 @@ class Player(Application):
             logging.info('Unsupported options "' + ' '.join(self.args['invalid']) + '" are automatically suppressed.')
 
     def run(self):
-        files = find_more_episodes(self.args['file'][-1])
-
-        if not files:
-            MPlayer().run(self.args['valid'])
+        if not self.args['file']:
+            MPlayer().play(self.args['valid'])
         else:
+            files = self.args['file'] + find_more_episodes(self.args['file'][-1])
+
             for f in files:
                 args = []
                 m = Media(f, self.args['valid'])
@@ -512,8 +512,11 @@ class MPlayer(object):
             self.__fifo.send(cmd)
         
     def play(self, media):
-        media.add_arg(self.__fifo.args)
-        args = [self.exe_path] + media.mplayer_args()
+        if isinstance(media,Media):
+            media.add_arg(self.__fifo.args)
+            args = [self.exe_path] + media.mplayer_args()
+        else:
+            args = [self.exe_path] + media
         logging.debug('\n'+' '.join(args))
         if not config['dry-run']:
             self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
@@ -970,15 +973,15 @@ def find_more_episodes(filepath):
         import re
         return [(int(x) if x.isdigit() else x) for x in re.split('(\d+)', translate(s)) if x != '']
     def strip_to_int(s,prefix):
-        if prefix and prefix in s:
+        # strip the prefix
+        if prefix and s.startswith(prefix):
             _,_,s = s.partition(prefix)
-            val = split_by_int(s)[0]
-            return val if isinstance(val,int) else -1
-        else:
-            return -1
+        # extract the first int
+        val = split_by_int(s)[0]
+        return val if isinstance(val,int) else -1
 
     if not os.path.exists(filepath):
-        return [filepath]
+        return []
     
     pdir, basename = os.path.split(os.path.abspath(filepath))
     # basic candidate filtering
@@ -988,9 +991,9 @@ def find_more_episodes(filepath):
     files.sort(key=split_by_int)
     del files[0:files.index(basename)]
 
-    # not necessary to go further if only one candidate
+    # not necessary to go further if no candidates
     if len(files) == 1:
-        return [filepath]
+        return []
 
     # find the common prefix
     i_break = 0
@@ -1001,7 +1004,7 @@ def find_more_episodes(filepath):
     prefix = files[0][0:i_break]
 
     # generate the list
-    results = [os.path.join(pdir,files[0])]
+    results = []
     for i,f in enumerate(files[1:]):
         if strip_to_int(f,prefix) - strip_to_int(files[i],prefix) == 1:
             results.append(os.path.join(pdir,f))

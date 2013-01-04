@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-02 16:29:10 by subi>
+# Time-stamp: <2013-01-03 00:34:52 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -972,7 +972,8 @@ def find_more_episodes(filepath):
     def strip_to_int(s,prefix):
         if prefix and prefix in s:
             _,_,s = s.partition(prefix)
-            return split_by_int(s)[0]
+            val = split_by_int(s)[0]
+            return val if isinstance(val,int) else -1
         else:
             return -1
 

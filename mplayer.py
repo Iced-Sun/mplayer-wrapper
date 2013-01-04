@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-04 22:51:48 by subi>
+# Time-stamp: <2013-01-04 23:35:03 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -28,6 +28,7 @@ import logging
 import os,sys
 import subprocess, threading, time
 import hashlib
+import re
 from fractions import Fraction
 from collections import defaultdict
 
@@ -79,7 +80,7 @@ class Dimension(object):
         self.height = int(height)
         self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
 
-def guess_locale_and_convert(s, precise=False):
+def guess_locale_and_convert(txt, precise=False):
     ascii = '[\x09\x0A\x0D\x20-\x7E]'
 
     # http://en.wikipedia.org/wiki/GBK
@@ -117,17 +118,19 @@ def guess_locale_and_convert(s, precise=False):
              '[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
              '\xF4[\x80-\x8F][\x80-\xBF]{2}']     # plane 16
 
-    def count_in_codec(pattern):
-        '''This in necessary because ASCII can be standalone or be the low
-        byte of pattern.
-        Return: (ASCII, PATTERN, OTHER)
+    def count_in_codec(txt, pattern):
+        '''ASCII bytes (\x00-\x7F) can be standalone or be the low
+        byte in the pattern. We count them separately.
+
+        Param:
+            pattern: the list of code points
+        Return: (#ASCII, #PATTERN, #OTHER)
         '''
-        if isinstance(pattern,list):
-            pattern = '|'.join(pattern)
+        pattern = '|'.join(pattern)
             
         # collecting all patterns
         pat = '({0}|{1})'.format(ascii, pattern)
-        interpretable = ''.join(re.findall(pat, s))
+        interpretable = ''.join(re.findall(pat, txt))
 
         # collecting standalone ASCII by filtering 'pattern' out
         pat = '(?:{0})+'.format(pattern)
@@ -138,67 +141,60 @@ def guess_locale_and_convert(s, precise=False):
     # the defaults
     enc,lang = 'ascii','und'
     
-    # BOM are trivial to test
+    # BOM are trivial to detect
     # http://unicode.org/faq/utf_bom.html#BOM
-    if s.startswith('\x00\x00\xFE\xFF'):
-        enc = 'utf_32_be'
-        s = s[4:-1]
-    elif s.startswith('\xFF\xFE\x00\x00'):
-        enc = 'utf_32_le'
-        s = s[4:-1]
-    elif s.startswith('\xFE\xFF'):
-        enc = 'utf_16_be'
-        s = s[2:-1]
-    elif s.startswith('\xFF\xFE'):
-        enc = 'utf_16_le'
-        s = s[2:-1]
-    elif s.startswith('\xEF\xBB\xBF'):
-        enc = 'utf_8'
-        s = s[3:-1]
-    # if BOM is detected
-    if enc != 'ascii':
-        if enc == 'utf_8':
-            return enc,lang,s
-        else:
-            return enc,lang,s.decode(enc,'ignore').encode('utf_8')
+    bom_list = [('\x00\x00\xFE\xFF', 'utf_32_be'),
+                ('\xFF\xFE\x00\x00', 'utf_32_le'),
+                ('\xFE\xFF',         'utf_16_be'),
+                ('\xFF\xFE',         'utf_16_le'),
+                ('\xEF\xBB\xBF',     'utf_8'),
+                ]
+    for bom in bom_list:
+        if txt.startswith(bom[0]):
+            enc = bom[1]
+            txt = txt[len(bom[0]):]
+            if not enc == 'utf_8':
+                txt = txt.decode(enc,'ignore').encode('utf_8')
+            return enc,lang,txt
 
-    # now the tricks
-    ori_s = s
-    # filter out ASCII as much as possible
-    import re
-    s = ''.join(re.split('(?:(?<![\x80-\xFE]){0})+'.format(ascii),s))
+    # filter out ASCII as much as possible by the heuristic that a \x00-\x7F
+    # byte that doesn't follow a \x80-\xFF byte is a REAL ascii byte.
+    sample = ''.join(re.split('(?:(?<![\x80-\xFE]){0})+'.format(ascii), txt))
 
     # take first 2k bytes
-    if len(s)>2048:
-        s = s[0:2048]
-    threshold = int(len(s) * .005)
+    if len(sample)>2048:
+        sample = sample[0:2048]
+    # if we have more than 0.5% (~10) characters cannot be interpreted by the
+    # codec pattern, reject it
+    threshold = int(len(sample) * .005)
 
     # To guess the encoding of a byte string, we count the bytes those cannot
     # be interpreted by the codec.
-    if count_in_codec(utf_8)[2] < threshold:
+    if count_in_codec(sample, utf_8)[2] < threshold:
         enc = 'utf_8'
     elif precise:
         # GB2312 and BIG5 share lots of code points and hence sometimes we need
-        # a heuristic method.
+        # a heuristic method to try to distinguish them.
+        
         # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
-        l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',s))
-        h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',s))
+        l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',sample))
+        h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',sample))
         if l == 0:
             enc,lang = 'gb2312','chs'
         elif float(l)/float(h) < 0.25:
             enc,lang = 'gbk','chi'
         else:
             enc,lang = 'big5','cht'
-    elif count_in_codec(gbk)[2] < threshold:
+    elif count_in_codec(sample, gbk)[2] < threshold:
         # Favor GBK over BIG5. If this not you want, set precise=True
         enc,lang = 'gbk','chi'
-    elif count_in_codec(big5)[2] < threshold:
+    elif count_in_codec(samples, big5)[2] < threshold:
         enc,lang = 'big5','cht'
 
     if not enc in ['utf_8', 'ascii']:
-        ori_s = ori_s.decode(enc,'ignore').encode('utf_8')
+        txt = txt.decode(enc,'ignore').encode('utf_8')
 
-    return enc,lang,ori_s
+    return enc,lang,txt
         
 ### Application classes
 class Application(object):
@@ -986,7 +982,6 @@ def find_more_episodes(filepath):
         s = s.decode(enc)
         return ''.join([dic.get(c,c) for c in s]).encode(enc)
     def split_by_int(s):
-        import re
         return [(int(x) if x.isdigit() else x) for x in re.split('(\d+)', translate(s)) if x != '']
     def strip_to_int(s,prefix):
         # strip the prefix

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-04 10:35:44 by subi>
+# Time-stamp: <2013-01-04 10:50:23 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -329,6 +329,7 @@ def refine_video_geometry(width,height,DAR_advice,DAR_force=None):
     def aspect_not_stupid(ar):
         return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
 
+    # FIXME: luca waltz_bus stop.mp4
     if DAR_force:
         DAR = DAR_force
     elif aspect_not_stupid(DAR_advice):
@@ -393,9 +394,11 @@ class Media(object):
             elif 'dsize' in self.args:
                 # TODO
                 pass
+            else:
+                DAR_force = None
             w,h = raw['ID_VIDEO_WIDTH'][0], raw['ID_VIDEO_HEIGHT'][0]
             a = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
-            info['storage'], info['DAR'], info['PAR'] = refine_video_geometry(w,h,a)
+            info['storage'], info['DAR'], info['PAR'] = refine_video_geometry(w,h,a,DAR_force)
             
             # non-square pixel fix
             if info['PAR'] != 1:

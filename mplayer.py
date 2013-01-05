@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-05 09:43:27 by subi>
+# Time-stamp: <2013-01-05 10:37:16 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -23,6 +23,8 @@
 # * "not compiled in option"
 # * detect the language in embedded subtitles, which is guaranteed to be utf8
 # * use ffprobe for better(?) metainfo detection?
+
+from __future__ import unicode_literals
 
 import logging
 import os,sys
@@ -441,6 +443,7 @@ class Media(object):
             info['subtitle']['external'] = raw['ID_FILE_SUB_FILENAME']
             logging.debug('Converting the external subtitles to UTF-8...')
             for subfile in raw['ID_FILE_SUB_FILENAME']:
+                # open in binary mode because we don't know the encoding
                 with open(subfile,'r+b') as f:
                     s = f.read()
                     enc,_,s = guess_locale_and_convert(s)
@@ -977,8 +980,8 @@ def find_more_episodes(filepath):
     '''
     def translate(s):
         import locale
-        dic = dict(zip(u'零壹贰叁肆伍陆柒捌玖〇一二三四五六七八九','01234567890123456789'))
-        return ''.join([dic.get(c,c) for c in s]).encode(fs_enc)
+        dic = dict(zip('零壹贰叁肆伍陆柒捌玖〇一二三四五六七八九','0123456789'*2))
+        return ''.join([dic.get(c,c) for c in s])
     def split_by_int(s):
         return [(int(x) if x.isdigit() else x) for x in re.split('(\d+)', translate(s)) if x != '']
     def strip_to_int(s,prefix):
@@ -992,15 +995,14 @@ def find_more_episodes(filepath):
     if not os.path.exists(filepath):
         return []
 
-    fs_enc = sys.getfilesystemencoding()
-    
     pdir, basename = os.path.split(os.path.abspath(filepath))
+    _, ext = os.path.splitext(basename)
     # basic candidate filtering
     # 1. extention
-    files = [f.decode(fs_enc) for f in os.listdir(pdir) if f.endswith(os.path.splitext(basename)[1])]
+    files = [f for f in os.listdir(pdir) if f.endswith(ext)]
     # 2. remove previous episodes
     files.sort(key=split_by_int)
-    del files[0:files.index(basename.decode(fs_enc))]
+    del files[0:files.index(basename)]
 
     # not necessary to go further if no candidates
     if len(files) == 1:
@@ -1028,8 +1030,9 @@ if __name__ == '__main__':
         print 'Please run the script with python>=2.7'
     else: 
         config = defaultdict(bool)
-
-        args = sys.argv[:]
+        config['enc'] = sys.getfilesystemencoding()
+        
+        args = [x.decode(config['enc']) for x in sys.argv]
         name = os.path.basename(args.pop(0))
         if 'mplayer' in name:
             app = Player

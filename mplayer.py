@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-05 22:33:51 by subi>
+# Time-stamp: <2013-01-05 22:36:41 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -83,7 +83,7 @@ class Dimension(object):
         self.height = int(height)
         self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
 
-def guess_locale_and_convert(txt, precise=False):
+def guess_locale_and_convert(txt, precise=True):
     ascii = '[\x09\x0A\x0D\x20-\x7E]'
 
     # http://en.wikipedia.org/wiki/GBK

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-05 13:43:23 by subi>
+# Time-stamp: <2013-01-05 22:33:51 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -99,7 +99,7 @@ def guess_locale_and_convert(txt, precise=False):
 
     # http://en.wikipedia.org/wiki/Big5
     # http://www.khngai.com/chinese/charmap/tblbig.php?page=0
-    big5 = ['[\x81-\A0][\x40-\x7E\xA1-\xFE]',     # Reserved for user-defined characters
+    big5 = ['[\x81-\xA0][\x40-\x7E\xA1-\xFE]',     # Reserved for user-defined characters
             '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]',    # "Graphical characters"
             '\xA3[\x40-\x7E\xA1-\xBF]',
             '\xA3[\xC0-\xFE]',                    # Reserved, not for user-defined characters
@@ -133,24 +133,24 @@ def guess_locale_and_convert(txt, precise=False):
             
         # collecting all patterns
         pat = '({0}|{1})'.format(ascii, pattern)
-        interpretable = ''.join(re.findall(pat, txt))
+        interpretable = b''.join(re.findall(pat, txt))
 
         # collecting standalone ASCII by filtering 'pattern' out
         pat = '(?:{0})+'.format(pattern)
-        standalone_ascii = ''.join(re.split(pat, interpretable))
+        standalone_ascii = b''.join(re.split(pat, interpretable))
 
-        return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(s)-len(interpretable)
+        return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(txt)-len(interpretable)
 
     # the defaults
     enc,lang = 'ascii','und'
     
     # BOM are trivial to detect
     # http://unicode.org/faq/utf_bom.html#BOM
-    bom_list = [('\x00\x00\xFE\xFF', 'utf_32_be'),
-                ('\xFF\xFE\x00\x00', 'utf_32_le'),
-                ('\xFE\xFF',         'utf_16_be'),
-                ('\xFF\xFE',         'utf_16_le'),
-                ('\xEF\xBB\xBF',     'utf_8'),
+    bom_list = [(b'\x00\x00\xFE\xFF', 'utf_32_be'),
+                (b'\xFF\xFE\x00\x00', 'utf_32_le'),
+                (b'\xFE\xFF',         'utf_16_be'),
+                (b'\xFF\xFE',         'utf_16_le'),
+                (b'\xEF\xBB\xBF',     'utf_8'),
                 ]
     for bom in bom_list:
         if txt.startswith(bom[0]):
@@ -162,23 +162,21 @@ def guess_locale_and_convert(txt, precise=False):
 
     # filter out ASCII as much as possible by the heuristic that a \x00-\x7F
     # byte that doesn't follow a \x80-\xFF byte is a REAL ascii byte.
-    sample = ''.join(re.split('(?:(?<![\x80-\xFE]){0})+'.format(ascii), txt))
+    sample = b''.join(re.split('(?:(?<![\x80-\xFE]){0})+'.format(ascii), txt))
 
     # take first 2k bytes
     if len(sample)>2048:
         sample = sample[0:2048]
-    # if we have more than 0.5% (~10) characters cannot be interpreted by the
-    # codec pattern, reject it
-    threshold = int(len(sample) * .005)
 
-    # To guess the encoding of a byte string, we count the bytes those cannot
-    # be interpreted by the codec.
+    # once we have more than 0.5% (~10) bytes cannot be interpreted by a codec
+    # pattern, take it
+    threshold = int(len(sample) * .005)
     if count_in_codec(sample, utf_8)[2] < threshold:
         enc = 'utf_8'
     elif precise:
-        # GB2312 and BIG5 share lots of code points and hence sometimes we need
-        # a heuristic method to try to distinguish them.
-        
+        # GBK and BIG5 share most code points and hence it's almost impossible to
+        # take a right guess by counting non-interpretable bytes.
+        #
         # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
         l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',sample))
         h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',sample))
@@ -757,7 +755,7 @@ def fetch_shooter(filepath,filehash):
     # shooter.cn uses UTF-8.
     head,tail = os.path.split(filepath)
     pathinfo = '\\'.join(['D:', os.path.basename(head), tail])
-    v_fingerpint = b'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(splayer_rev, pathinfo.encode('utf8'), filehash.encode('utf8'))
+    v_fingerpint = b'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(splayer_rev, pathinfo.encode('utf_8'), filehash.encode('utf_8'))
     vhash = hashlib.md5(v_fingerpint).hexdigest()
     import random
     boundary = '-'*28 + '{0:x}'.format(random.getrandbits(48))
@@ -788,10 +786,10 @@ def fetch_shooter(filepath,filehash):
             url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(schemas), random.choice(servers))
 
             # shooter.cn uses UTF-8.
-            req = urllib2.Request(url.encode('utf8'))
+            req = urllib2.Request(url.encode('utf_8'))
             for h in header:
-                req.add_header(h[0].encode('utf8'), h[1].encode('utf8'))
-            req.add_data(data.encode('utf8'))
+                req.add_header(h[0].encode('utf_8'), h[1].encode('utf_8'))
+            req.add_data(data.encode('utf_8'))
 
             logging.debug('Connecting server {0} with the submission:\n'
                           '\n{1}\n'

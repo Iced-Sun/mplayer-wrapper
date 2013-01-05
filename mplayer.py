@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-05 11:28:02 by subi>
+# Time-stamp: <2013-01-05 11:30:24 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -632,12 +632,12 @@ class MPlayer(object):
             lines[4].append(c)
 
             # carriage return / linefeed
-            if c == '\n':
+            if c == b'\n':
                 flush_first_line(f,lines)
-            elif c == '\r':
+            elif c == b'\r':
                 d = p.stdout.read(1)
-                if d == '\n':
-                    lines[4].append('\n')
+                if d == b'\n':
+                    lines[4].append(b'\n')
                     flush_first_line(f,lines)
                 else:
                     flush_first_line(f,lines)
@@ -646,13 +646,13 @@ class MPlayer(object):
                 pass
 
         # save info and flush rest outputs
-        for l in (''.join(ll) for ll in lines):
-            if l.startswith(('A:','V:')):
+        for l in (b''.join(ll) for ll in lines):
+            if l.startswith((b'A:',b'V:')):
                 try:
                     self.last_timestamp = float(l[2:9])
                 except ValueError:
                     pass
-            if l.startswith('Exiting...'):
+            if l.startswith(b'Exiting...'):
                 self.last_exit_status = l[12:len(l)-2]
             f.write(l)
         f.flush()

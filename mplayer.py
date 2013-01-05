@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-05 12:10:52 by subi>
+# Time-stamp: <2013-01-05 12:26:24 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -712,27 +712,27 @@ def parse_shooter_package(fileobj):
     # read contents
     import struct
     c = f.read(1)
-    package_count = struct.unpack('!b', c)[0]
+    package_count = struct.unpack(b'!b', c)[0]
 
     for i in range(package_count):
         # NOTE: '_' is the length of following byte-stream
         c = f.read(8)
-        _,desc_length = struct.unpack('!II', c)
+        _,desc_length = struct.unpack(b'!II', c)
         description = f.read(desc_length).decode('utf_8')
         sub_delay = description.partition('=')[2] / 1000.0 if description and 'delay' in description else 0
         if description:
             logging.debug('Subtitle description: {0}'.format(description))
 
         c = f.read(5)
-        _,file_count = struct.unpack('!IB', c)
+        _,file_count = struct.unpack(b'!IB', c)
             
         for j in range(file_count):
             c = f.read(8)
-            _,ext_len = struct.unpack('!II', c)
+            _,ext_len = struct.unpack(b'!II', c)
             ext = f.read(ext_len)
 
             c = f.read(4)
-            file_len = struct.unpack('!I', c)[0]
+            file_len = struct.unpack(b'!I', c)[0]
             sub = f.read(file_len)
             if sub.startswith('\x1f\x8b'):
                 import gzip

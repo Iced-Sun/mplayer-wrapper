@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-05 11:30:24 by subi>
+# Time-stamp: <2013-01-05 12:10:52 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -754,14 +754,15 @@ def fetch_shooter(filepath,filehash):
     tries = [2, 10, 30, 60, 120]
 
     # generate data for submission
+    # shooter.cn uses UTF-8.
     head,tail = os.path.split(filepath)
-    pathinfo= '\\'.join(['D:', os.path.basename(head), tail])
-    vstring = 'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(splayer_rev, pathinfo, filehash)
-    vhash = hashlib.md5(vstring).hexdigest()
+    pathinfo = '\\'.join(['D:', os.path.basename(head), tail])
+    v_fingerpint = b'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(splayer_rev, pathinfo.encode('utf8'), filehash.encode('utf8'))
+    vhash = hashlib.md5(v_fingerpint).hexdigest()
     import random
     boundary = '-'*28 + '{0:x}'.format(random.getrandbits(48))
 
-    header = [('User-Agent', 'SPlayer Build {0}'.format(splayer_rev)),
+    header = [('User-Agent',   'SPlayer Build {0}'.format(splayer_rev)),
               ('Content-Type', 'multipart/form-data; boundary={0}'.format(boundary))
               ]
     items = [('filehash', filehash), ('pathinfo', pathinfo), ('vhash', vhash)]
@@ -785,10 +786,13 @@ def fetch_shooter(filepath,filehash):
             time.sleep(t)
 
             url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(schemas), random.choice(servers))
-            req = urllib2.Request(url)
+
+            # shooter.cn uses UTF-8.
+            req = urllib2.Request(url.encode('utf8'))
             for h in header:
-                req.add_header(*h)
-            req.add_data(data)
+                req.add_header(h[0].encode('utf8'), h[1].encode('utf8'))
+            req.add_data(data.encode('utf8'))
+
             logging.debug('Connecting server {0} with the submission:\n'
                           '\n{1}\n'
                           '{2}\n'.format(url,

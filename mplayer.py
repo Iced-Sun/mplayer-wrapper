@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-04 23:35:03 by subi>
+# Time-stamp: <2013-01-05 09:43:27 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -978,9 +978,7 @@ def find_more_episodes(filepath):
     def translate(s):
         import locale
         dic = dict(zip(u'零壹贰叁肆伍陆柒捌玖〇一二三四五六七八九','01234567890123456789'))
-        enc = sys.getfilesystemencoding()
-        s = s.decode(enc)
-        return ''.join([dic.get(c,c) for c in s]).encode(enc)
+        return ''.join([dic.get(c,c) for c in s]).encode(fs_enc)
     def split_by_int(s):
         return [(int(x) if x.isdigit() else x) for x in re.split('(\d+)', translate(s)) if x != '']
     def strip_to_int(s,prefix):
@@ -993,14 +991,16 @@ def find_more_episodes(filepath):
 
     if not os.path.exists(filepath):
         return []
+
+    fs_enc = sys.getfilesystemencoding()
     
     pdir, basename = os.path.split(os.path.abspath(filepath))
     # basic candidate filtering
     # 1. extention
-    files = [f for f in os.listdir(pdir) if f.endswith(os.path.splitext(basename)[1])]
+    files = [f.decode(fs_enc) for f in os.listdir(pdir) if f.endswith(os.path.splitext(basename)[1])]
     # 2. remove previous episodes
     files.sort(key=split_by_int)
-    del files[0:files.index(basename)]
+    del files[0:files.index(basename.decode(fs_enc))]
 
     # not necessary to go further if no candidates
     if len(files) == 1:

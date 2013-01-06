@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-05 22:36:41 by subi>
+# Time-stamp: <2013-01-06 13:39:48 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -83,7 +83,7 @@ class Dimension(object):
         self.height = int(height)
         self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
 
-def guess_locale_and_convert(txt, precise=True):
+def guess_locale_and_convert(txt, precise=False):
     ascii = '[\x09\x0A\x0D\x20-\x7E]'
 
     # http://en.wikipedia.org/wiki/GBK
@@ -97,20 +97,18 @@ def guess_locale_and_convert(txt, precise=True):
            '[\xA1-\xA7][\x40-\x7E\x80-\xA0]']     # user-defined
     gb2312 = gbk[0:2]
 
-    # http://en.wikipedia.org/wiki/Big5
-    # http://www.khngai.com/chinese/charmap/tblbig.php?page=0
-    big5 = ['[\x81-\xA0][\x40-\x7E\xA1-\xFE]',     # Reserved for user-defined characters
-            '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]',    # "Graphical characters"
-            '\xA3[\x40-\x7E\xA1-\xBF]',
-            '\xA3[\xC0-\xFE]',                    # Reserved, not for user-defined characters
-            '[\xA4-\xC5][\x40-\x7E\xA1-\xFE]',    # Frequently used characters
-            '\xC6[\x40-\x7E]',
-            '\xC6[\xA1-\xFE]',                    # Reserved for user-defined characters
-            '[\xC7\xC8][\x40-\x7E\xA1-\xFE]',
-            '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]',    # Less frequently used characters
-            '\xF9[\x40-\x7E\xA1-\xD5]',
-            '\xF9[\xD6-\xFE]',                    # Reserved for user-defined characters
-            '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]']    
+    # http://www.cns11643.gov.tw/AIDB/encodings.do#encode4
+    big5 = ['[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]',          # 常用字
+            '\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]',           # 常用字保留範圍/罕用符號區
+            '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]', # 次常用字
+            '\xF9[\xD6-\xFE]',                                          # 次常用字保留範圍
+            '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]', # 符號區標準字
+            '\xA3[\xC0-\xE0]',                                          # 符號區控制碼
+            '\xA3[\xE1-\xFE]',                                          # 符號區控制碼保留範圍
+            '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第一段
+            '[\x8E-\xA0][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第二段
+            '[\x81-\x8D][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第三段
+            ]
 
     # http://www.w3.org/International/questions/qa-forms-utf-8
     utf_8 = ['[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
@@ -125,8 +123,7 @@ def guess_locale_and_convert(txt, precise=True):
         '''ASCII bytes (\x00-\x7F) can be standalone or be the low
         byte in the pattern. We count them separately.
 
-        Param:
-            pattern: the list of code points
+        @pattern: the list of code points
         Return: (#ASCII, #PATTERN, #OTHER)
         '''
         pattern = '|'.join(pattern)
@@ -175,7 +172,7 @@ def guess_locale_and_convert(txt, precise=True):
         enc = 'utf_8'
     elif precise:
         # GBK and BIG5 share most code points and hence it's almost impossible to
-        # take a right guess by counting non-interpretable bytes.
+        # take a right guess by only counting non-interpretable bytes.
         #
         # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
         l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',sample))
@@ -186,11 +183,18 @@ def guess_locale_and_convert(txt, precise=True):
             enc,lang = 'gbk','chi'
         else:
             enc,lang = 'big5','cht'
-    elif count_in_codec(sample, gbk)[2] < threshold:
-        # Favor GBK over BIG5. If this not you want, set precise=True
-        enc,lang = 'gbk','chi'
-    elif count_in_codec(samples, big5)[2] < threshold:
-        enc,lang = 'big5','cht'
+    else:
+        # In the particular context of subtitles, traditional Chinese is more
+        # likely encoded in BIG5 rather than GBK.
+        #
+        # The priority is GB2312>BIG5>GBK when the bytes can interpreted by at
+        # least two of them. If this is not you want, please let precise=True.
+        if count_in_codec(sample, gb2312)[2] < threshold:
+            enc,lang = 'gb2312','chs'
+        elif count_in_codec(sample, big5)[2] < threshold:
+            enc,lang = 'big5','cht'
+        elif count_in_codec(sample, gbk)[2] < threshold:
+            enc,lang = 'gbk','cht'
 
     if not enc in ['utf_8', 'ascii']:
         txt = txt.decode(enc,'ignore').encode('utf_8')

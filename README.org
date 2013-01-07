@@ -1,13 +1,13 @@
 * MPlayer wrapper
 mplayer-wrapper是MPlayer的一个命令行前端，尽可能保证与原有的mplayer命令行界面保持一致。
 
-目前有两个版本：Bash和Python。Bash版不再改动；Python版还有一些功能没实现，推荐Python版。
+目前有两个版本：Bash和Python。Bash版不再改动；Python版还有一些功能没实现， *推荐Python版*
 
 ** 功能
 *** 视频填充
 对视频的顶端和底端用黑边进行填充，使得字幕和OSD显示在黑边上（而非覆盖在画面上，[[http://gosubi.me/adow/2010/02/mplayer-reloaded/][查看截图]]）。
 
-通过mplayer的-vf expand或-ass-use-margins实现（默认使用ass）。
+通过mplayer的-vf expand实现。
 
 *** 字体大小和位置自适应
 默认情况下，mplayer播放时的字体大小正比于视频分辨率，导致高分辨率视频的字体太大而低分辨率视频的字体太小。
@@ -19,7 +19,7 @@ mplayer-wrapper将使得在字体大小无关于视频分辨率；但该字体�
 *** 字幕自动下载
 对于没有文本字幕的视频，自动从[[http://shooter.cn][射手网]]进行查询和下载。
     
-Python版使用射手网的subapi，即通过视频文件本身的hash（若干个md5校验串）来查询字幕，结果精确；但由于负载原因，射手网只提供了中文字幕，因此需要英文字幕的就只能手动上网搜索下载了。
+Python版使用射手网的subapi，即通过视频文件本身的hash（若干个md5校验串）来查询字幕，结果精确。
 
 *** 连续播放
 根据文件名生成播放列表，从而自动播放文件名连续的多个文件（例如“十二国记第03集”、“十二国记第04集”）。

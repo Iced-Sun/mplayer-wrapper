@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-07 12:31:01 by subi>
+# Time-stamp: <2013-01-07 12:47:08 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -232,7 +232,8 @@ class Player(Application):
     def __init__(self, args):
         super(Player, self).__init__(args)
         self.args = defaultdict(list)
-        
+
+        # parse args
         while args:
             s = args.pop(0)
             if s == '--':
@@ -251,14 +252,15 @@ class Player(Application):
             else:
                 self.args['file'].append(s)
 
+        # deliver them
+        MPlayer().add_arg(self.args['valid'])
         self.playlist = self.args['file'][:]
-            
         if self.args['invalid']:
             logging.info('Unknown options "' + ' '.join(self.args['invalid']) + '" are ignored.')
 
     def run(self):
         if not self.playlist:
-            MPlayer().play(self.args['valid'])
+            MPlayer().play()
         else:
             # Use a separate thread to reduce the noticeable lag when finding
             # episodes in a big directory.
@@ -270,7 +272,7 @@ class Player(Application):
             while self.playlist:
                 with playlist_lock:
                     f = self.playlist.pop(0)
-                m = Media(f, self.args['valid'])
+                m = Media(f)
                 m.prepare_mplayer_args()
                 watch_thread = threading.Thread(target=self.watch, args=(m,))
                 watch_thread.daemon = True
@@ -337,7 +339,7 @@ class MPlayerFifo(object):
         try:
             os.mkfifo(self.__path)
             atexit.register(lambda f: os.unlink(f), self.__path)
-            self.args = '-input file={0}'.format(self.__path)
+            self.args = '-input file={0}'.format(self.__path).split()
         except OSError as e:
             logging.info(e)
             
@@ -390,11 +392,6 @@ class Media(object):
         return self.args
 
     def prepare_mplayer_args(self):
-        # always do unrar in case we have rar-ed vobsub files.
-        unrar = which('unrar')
-        if unrar:
-            self.add_arg('-unrarexec {0}'.format(unrar))
-            
         # collect media info by midentify
         self.__raw_info['mplayer'] = defaultdict(list)
         raw = self.__raw_info['mplayer']
@@ -407,11 +404,7 @@ class Media(object):
         if raw['ID_VIDEO_ID']:
             info['video'] = True
 
-            if '-noass' in self.args or not MPlayer().support_ass():
-                self.add_arg('-noass')
-            else:
-                self.add_arg('-ass')
-
+            # preparation
             if '-aspect' in self.args:
                 s = self.args[self.args.index('-aspect')+1]
                 if ':' in s:
@@ -440,6 +433,17 @@ class Media(object):
                 self.add_arg('-aspect {0.numerator}:{0.denominator}'.format(info['DAR']))
                 self.add_arg('-vf-pre scale={0}:{1}'.format(sw,sh))
 
+            # do unrar in case we have rar-ed vobsub files.
+            unrar = which('unrar')
+            if unrar:
+                self.add_arg('-unrarexec {0}'.format(unrar))
+
+            # libass availability
+            if '-noass' in self.args or not MPlayer().support_ass():
+                self.add_arg('-noass')
+            else:
+                self.add_arg('-ass')
+                
             # video expanding
             for item in expand_video(info['DAR'], check_screen_dim().aspect):
                 self.add_arg(item)
@@ -505,8 +509,8 @@ class Media(object):
         if force or arg[0] in never_overwritten or not arg[0] in self.args:
             self.args += arg
 
-    def __init__(self,path,global_args=[]):
-        self.args = global_args[:] + [path]
+    def __init__(self,path):
+        self.args = [path]
         
         self.__info = defaultdict(bool)
         self.__raw_info = defaultdict(bool)
@@ -541,16 +545,15 @@ class MPlayer(object):
     last_timestamp = 0.0
     last_exit_status = None
 
+    def add_arg(self,arg):
+        self.__default_args += arg
+        
     def send(self, cmd):
         if self.__process != None:
             self.__fifo.send(cmd)
         
     def play(self, media):
-        if isinstance(media,Media):
-            media.add_arg(self.__fifo.args)
-            args = [self.exe_path] + media.mplayer_args()
-        else:
-            args = [self.exe_path] + media
+        args = [self.exe_path] + self.__default_args + media.mplayer_args()
         logging.debug('\n'+' '.join(args))
         if not config['dry-run']:
             self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
@@ -605,10 +608,13 @@ class MPlayer(object):
                 self.exe_path = p
                 break
 
-        self.__fifo = MPlayerFifo()
         self.__mplayer2 = None
         self.__ass = None
         self.__opts = {}
+        self.__default_args = []
+
+        self.__fifo = MPlayerFifo()
+        self.add_arg(self.__fifo.args)
 
     def __gen_opts(self):
         options = subprocess.Popen([self.exe_path, '-list-options'], stdout=subprocess.PIPE).communicate()[0].splitlines()

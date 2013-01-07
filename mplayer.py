@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-07 21:39:29 by subi>
+# Time-stamp: <2013-01-07 21:46:53 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -59,21 +59,24 @@ def check_screen_dim():
     dim = Dimension()
     dim_updated = False
     
-    if which('xrandr'):
-        for l in subprocess.check_output(['xrandr']).splitlines():
-            if l.startswith('*'): # xrandr 1.1
-                dim_updated = True
-                _,w,_,h = l.split()
-                if w > dim.width:
-                    dim = Dimension(w,h)
-            elif '*' in l:        # xrandr 1.2 and above
-                dim_updated = True
-                w,h = l.split()[0].split('x')
-                if w > dim.width:
-                    dim = Dimension(w,h)
+    if not which('xrandr'):
+        return dim
+
+    for l in subprocess.check_output(['xrandr']).splitlines():
+        if l.startswith('*'): # xrandr 1.1
+            _,w,_,h = l.split()
+        elif '*' in l:        # xrandr 1.2 and above
+            w,h = l.split()[0].split('x')
+        else:
+            continue
+        
+        dim_updated = True
+        if w > dim.width:
+            dim = Dimension(w,h)
 
     if not dim_updated:
-        logging.info('Cannot find xrandr or unsupported xrandr version. The screen dimension defaults to {0}x{1}.'.format(dim.width, dim.height))
+        logging.info('Cannot find xrandr or unsupported xrandr version. '
+                     'The screen dimension defaults to {0}x{1}.'.format(dim.width, dim.height))
         
     return dim
 

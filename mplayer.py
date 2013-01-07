@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-07 12:47:08 by subi>
+# Time-stamp: <2013-01-07 21:39:29 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -433,11 +433,6 @@ class Media(object):
                 self.add_arg('-aspect {0.numerator}:{0.denominator}'.format(info['DAR']))
                 self.add_arg('-vf-pre scale={0}:{1}'.format(sw,sh))
 
-            # do unrar in case we have rar-ed vobsub files.
-            unrar = which('unrar')
-            if unrar:
-                self.add_arg('-unrarexec {0}'.format(unrar))
-
             # libass availability
             if '-noass' in self.args or not MPlayer().support_ass():
                 self.add_arg('-noass')
@@ -476,6 +471,10 @@ class Media(object):
             self.add_arg('-subcp utf8')
         if raw['ID_VOBSUB_ID']:
             info['subtitle']['vobsub'] = True
+            unrar = which('unrar')
+            if unrar:
+                self.add_arg('-unrarexec {0}'.format(unrar))
+
         
     def fetch_remote_subtitles_and_save(self, sub_savedir=None, load_in_mplayer=False):
         info = self.__info

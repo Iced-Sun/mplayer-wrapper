@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-06 13:39:48 by subi>
+# Time-stamp: <2013-01-07 12:31:01 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -250,17 +250,26 @@ class Player(Application):
                         self.args['valid'].append(args.pop(0))
             else:
                 self.args['file'].append(s)
+
+        self.playlist = self.args['file'][:]
             
         if self.args['invalid']:
-            logging.info('Unsupported options "' + ' '.join(self.args['invalid']) + '" are automatically suppressed.')
+            logging.info('Unknown options "' + ' '.join(self.args['invalid']) + '" are ignored.')
 
     def run(self):
-        if not self.args['file']:
+        if not self.playlist:
             MPlayer().play(self.args['valid'])
         else:
-            files = self.args['file'] + find_more_episodes(self.args['file'][-1])
-
-            for f in files:
+            # Use a separate thread to reduce the noticeable lag when finding
+            # episodes in a big directory.
+            playlist_lock = threading.Lock()
+            playlist_thread = threading.Thread(target=self.generate_playlist, args=(playlist_lock,))
+            playlist_thread.daemon = True
+            playlist_thread.start()
+            
+            while self.playlist:
+                with playlist_lock:
+                    f = self.playlist.pop(0)
                 m = Media(f, self.args['valid'])
                 m.prepare_mplayer_args()
                 watch_thread = threading.Thread(target=self.watch, args=(m,))
@@ -271,9 +280,16 @@ class Player(Application):
                 if MPlayer().last_exit_status == 'Quit':
                     break
 
+                playlist_thread.join()
+
     def watch(self, media):
         if media.is_video():
             media.fetch_remote_subtitles_and_save(load_in_mplayer=True)
+            
+    def generate_playlist(self, lock):
+        time.sleep(1.5)
+        with lock:
+            self.playlist += find_more_episodes(self.args['file'][-1])
             
 class Fetcher(Application):
     def run(self):
@@ -619,7 +635,7 @@ class MPlayer(object):
 
     def __tee(self):
         def flush_first_line(fileobj, lines):
-            fileobj.write(''.join(lines.pop(0)))
+            fileobj.write(b''.join(lines.pop(0)))
             fileobj.flush()
             lines.append([])
 

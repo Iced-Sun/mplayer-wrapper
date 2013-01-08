@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-08 16:39:55 by subi>
+# Time-stamp: <2013-01-08 19:48:31 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -176,7 +176,7 @@ class Charset(object):
     self.stream = stream
     self.set('ascii', 'eng')
     
-  def guess_locale(self, naive=True):
+  def guess(self, naive=True):
     if self.detect_and_strip_BOM():
       return self.enc, self.lang
 
@@ -222,7 +222,7 @@ class Charset(object):
     return self.enc, self.lang
     
 def guess_locale_and_convert(txt):
-  enc,lang = Charset(txt).guess_locale()
+  enc,lang = Charset(txt).guess()
   if not enc in ['utf_8', 'ascii']:
     txt = txt.decode(enc,'ignore').encode('utf_8')
   return enc,lang,txt

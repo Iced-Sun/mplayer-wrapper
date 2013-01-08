@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-07 21:46:53 by subi>
+# Time-stamp: <2013-01-08 14:55:42 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -86,88 +86,106 @@ class Dimension(object):
         self.height = int(height)
         self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
 
-def guess_locale_and_convert(txt, precise=False):
-    ascii = '[\x09\x0A\x0D\x20-\x7E]'
+def filter_in(stream, regex):
+    # find matches and join them
+    return b''.join(re.findall('{0}'.format(regex)), stream)
+
+def filter_out(stream, regex):
+    # kick out matches and join the remains
+    return b''.join(re.split('(?:{0})+'.format(regex)), stream)
+
+class Charset(object):
+    # http://unicode.org/faq/utf_bom.html#BOM
+    bom = ((b'\x00\x00\xFE\xFF', 'utf_32_be'), (b'\xFF\xFE\x00\x00', 'utf_32_le'),
+           (b'\xFE\xFF',         'utf_16_be'), (b'\xFF\xFE',         'utf_16_le'),
+           (b'\xEF\xBB\xBF',     'utf_8'), )
+    
+    codec = defaultdict(list)
+
+    # http://en.wikipedia.org/wiki/Ascii
+    codec['ascii'] = ('[\x09\x0A\x0D\x20-\x7E]',)
 
     # http://en.wikipedia.org/wiki/GBK
-    gbk = ['[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
-           '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
-           '[\x81-\xA0][\x40-\x7E\x80-\xFE]',     # Level GBK/3
-           '[\xAA-\xFE][\x40-\x7E\x80-\xA0]',     # Level GBK/4
-           '[\xA8-\xA9][\x40-\x7E\x80-\xA0]',     # Level GBK/5
-           '[\xAA-\xAF][\xA1-\xFE]',              # user-defined
-           '[\xF8-\xFE][\xA1-\xFE]',              # user-defined
-           '[\xA1-\xA7][\x40-\x7E\x80-\xA0]']     # user-defined
-    gb2312 = gbk[0:2]
+    codec['gbk'] = ('[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
+                    '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
+                    '[\x81-\xA0][\x40-\x7E\x80-\xFE]',     # Level GBK/3
+                    '[\xAA-\xFE][\x40-\x7E\x80-\xA0]',     # Level GBK/4
+                    '[\xA8-\xA9][\x40-\x7E\x80-\xA0]',     # Level GBK/5
+                    '[\xAA-\xAF][\xA1-\xFE]',              # user-defined
+                    '[\xF8-\xFE][\xA1-\xFE]',              # user-defined
+                    '[\xA1-\xA7][\x40-\x7E\x80-\xA0]',     # user-defined
+                    )
+    codec['gb2312'] = codec['gbk'][0:2]
 
     # http://www.cns11643.gov.tw/AIDB/encodings.do#encode4
-    big5 = ['[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]',          # 常用字
-            '\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]',           # 常用字保留範圍/罕用符號區
-            '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]', # 次常用字
-            '\xF9[\xD6-\xFE]',                                          # 次常用字保留範圍
-            '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]', # 符號區標準字
-            '\xA3[\xC0-\xE0]',                                          # 符號區控制碼
-            '\xA3[\xE1-\xFE]',                                          # 符號區控制碼保留範圍
-            '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第一段
-            '[\x8E-\xA0][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第二段
-            '[\x81-\x8D][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第三段
-            ]
+    codec['big5'] = ('[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]',          # 常用字
+                     '\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]',           # 常用字保留範圍/罕用符號區
+                     '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]', # 次常用字
+                     '\xF9[\xD6-\xFE]',                                          # 次常用字保留範圍
+                     '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]', # 符號區標準字
+                     '\xA3[\xC0-\xE0]',                                          # 符號區控制碼
+                     '\xA3[\xE1-\xFE]',                                          # 符號區控制碼保留範圍
+                     '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第一段
+                     '[\x8E-\xA0][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第二段
+                     '[\x81-\x8D][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第三段
+                     )
 
     # http://www.w3.org/International/questions/qa-forms-utf-8
-    utf_8 = ['[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
-             '\xE0[\xA0-\xBF][\x80-\xBF]',        # excluding overlongs
-             '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}', # straight 3-byte
-             '\xED[\x80-\x9F][\x80-\xBF]',        # excluding surrogates
-             '\xF0[\x90-\xBF][\x80-\xBF]{2}',     # planes 1-3
-             '[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
-             '\xF4[\x80-\x8F][\x80-\xBF]{2}']     # plane 16
+    codec['utf_8'] = ('[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
+                      '\xE0[\xA0-\xBF][\x80-\xBF]',        # excluding overlongs
+                      '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}', # straight 3-byte
+                      '\xED[\x80-\x9F][\x80-\xBF]',        # excluding surrogates
+                      '\xF0[\x90-\xBF][\x80-\xBF]{2}',     # planes 1-3
+                      '[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
+                      '\xF4[\x80-\x8F][\x80-\xBF]{2}',     # plane 16
+                      )
 
-    def count_in_codec(txt, pattern):
+    @staticmethod
+    def re(enc, with_ascii=True):
+        if with_ascii and not enc == 'ascii':
+            return '|'.join(Charset.codec['ascii']+Charset.codec[enc])
+        else:
+            return '|'.join(Charset.codec[enc])
+
+    @staticmethod
+    def count_occurrence(stream, enc):
         '''ASCII bytes (\x00-\x7F) can be standalone or be the low
-        byte in the pattern. We count them separately.
+        byte of the pattern. We count them separately.
 
         @pattern: the list of code points
         Return: (#ASCII, #PATTERN, #OTHER)
         '''
-        pattern = '|'.join(pattern)
-            
-        # collecting all patterns
-        pat = '({0}|{1})'.format(ascii, pattern)
-        interpretable = b''.join(re.findall(pat, txt))
+        interpretable = filter_in(stream, Charset.re(enc))
+        standalone_ascii = filter_out(interpretable, Charset.re(enc,False))
+        
+        return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(stream)-len(interpretable)
 
-        # collecting standalone ASCII by filtering 'pattern' out
-        pat = '(?:{0})+'.format(pattern)
-        standalone_ascii = b''.join(re.split(pat, interpretable))
+    def detect_BOM(self):
+        for sig,enc in bom:
+            if self.stream.startswith(sig):
+                self.stream = self.stream[len(sig):]
+                return True
+        return False
 
-        return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(txt)-len(interpretable)
+    def __init__(self, stream):
+        self.stream = stream
+        self.enc = 'ascii'
+        self.lang = 'und'
 
-    # the defaults
-    enc,lang = 'ascii','und'
+    def guess_locale(self):
+        if self.detect_BOM():
+            return
+
+        # filter out ASCII as much as possible by the heuristic that a
+        # \x00-\x7F byte that following a \x80-\xFF one is not ASCII.
+        pattern = '(?<![\x80-\xFE]){0}'.format(Charset.re('ascii'))
+        sample = filter_out(self.stream, pattern)
     
-    # BOM are trivial to detect
-    # http://unicode.org/faq/utf_bom.html#BOM
-    bom_list = [(b'\x00\x00\xFE\xFF', 'utf_32_be'),
-                (b'\xFF\xFE\x00\x00', 'utf_32_le'),
-                (b'\xFE\xFF',         'utf_16_be'),
-                (b'\xFF\xFE',         'utf_16_le'),
-                (b'\xEF\xBB\xBF',     'utf_8'),
-                ]
-    for bom in bom_list:
-        if txt.startswith(bom[0]):
-            enc = bom[1]
-            txt = txt[len(bom[0]):]
-            if not enc == 'utf_8':
-                txt = txt.decode(enc,'ignore').encode('utf_8')
-            return enc,lang,txt
-
-    # filter out ASCII as much as possible by the heuristic that a \x00-\x7F
-    # byte that doesn't follow a \x80-\xFF byte is a REAL ascii byte.
-    sample = b''.join(re.split('(?:(?<![\x80-\xFE]){0})+'.format(ascii), txt))
-
+def guess_locale_and_convert(txt, precise=False):
     # take first 2k bytes
     if len(sample)>2048:
         sample = sample[0:2048]
-
+        
     # once we have more than 0.5% (~10) bytes cannot be interpreted by a codec
     # pattern, take it
     threshold = int(len(sample) * .005)
@@ -1058,7 +1076,7 @@ def find_more_episodes(filepath):
 if __name__ == '__main__':
     if sys.hexversion < 0x02070000:
         print 'Please run the script with python>=2.7'
-    else: 
+    else:
         config = defaultdict(bool)
         config['enc'] = sys.getfilesystemencoding()
         
@@ -1072,5 +1090,6 @@ if __name__ == '__main__':
             app = Identifier
         else:
             app = Application
-
+            
         app(args).run()
+        

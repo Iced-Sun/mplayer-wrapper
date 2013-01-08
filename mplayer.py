@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-08 15:45:48 by subi>
+# Time-stamp: <2013-01-08 16:39:55 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -88,11 +88,11 @@ class Dimension(object):
 
 def filter_in(stream, regex):
   # find matches and join them
-  return b''.join(re.findall('{0}'.format(regex)), stream)
+  return b''.join(re.findall('{0}'.format(regex), stream))
 
 def filter_out(stream, regex):
   # kick out matches and join the remains
-  return b''.join(re.split('(?:{0})+'.format(regex)), stream)
+  return b''.join(re.split('(?:{0})+'.format(regex), stream))
 
 class Charset(object):
   # http://unicode.org/faq/utf_bom.html#BOM
@@ -157,70 +157,75 @@ class Charset(object):
     '''
     interpretable = filter_in(stream, Charset.re(enc))
     standalone_ascii = filter_out(interpretable, Charset.re(enc,False))
-      
+    
     return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(stream)-len(interpretable)
 
-  def detect_BOM(self):
-    for sig,enc in bom:
+  def set(self, enc, lang):
+    self.enc = enc
+    self.lang = lang
+    
+  def detect_and_strip_BOM(self):
+    for sig,enc in Charset.bom:
       if self.stream.startswith(sig):
+        self.set(enc, 'und')
         self.stream = self.stream[len(sig):]
         return True
     return False
 
   def __init__(self, stream):
     self.stream = stream
-    self.enc = 'ascii'
-    self.lang = 'und'
-
-  def guess_locale(self):
-    if self.detect_BOM():
-      return
+    self.set('ascii', 'eng')
+    
+  def guess_locale(self, naive=True):
+    if self.detect_and_strip_BOM():
+      return self.enc, self.lang
 
     # filter out ASCII as much as possible by the heuristic that a
     # \x00-\x7F byte that following a \x80-\xFF one is not ASCII.
     pattern = '(?<![\x80-\xFE]){0}'.format(Charset.re('ascii'))
     sample = filter_out(self.stream, pattern)
-    
-def guess_locale_and_convert(txt, precise=False):
+
     # take first 2k bytes
     if len(sample)>2048:
-        sample = sample[0:2048]
-        
-    # once we have more than 0.5% (~10) bytes cannot be interpreted by a codec
-    # pattern, take it
+      sample = sample[0:2048]
+
+    # true when having less than 0.5% (~10) bytes cannot be interpreted
     threshold = int(len(sample) * .005)
-    if count_in_codec(sample, utf_8)[2] < threshold:
-        enc = 'utf_8'
-    elif precise:
-        # GBK and BIG5 share most code points and hence it's almost impossible to
-        # take a right guess by only counting non-interpretable bytes.
-        #
-        # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
-        l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',sample))
-        h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',sample))
-        if l == 0:
-            enc,lang = 'gb2312','chs'
-        elif float(l)/float(h) < 0.25:
-          enc,lang = 'gbk','chi'
-        else:
-          enc,lang = 'big5','cht'
+    if naive:
+      # In the particular context of subtitles, traditional Chinese is more
+      # likely encoded in BIG5 rather than GBK.
+      #
+      # The priority is GB2312>BIG5>GBK when the bytes can interpreted by at
+      # least two of them. If this is not you want, please set naive=False.
+      for enc,lang in [('utf_8',  'und'),
+                       ('gb2312', 'chs'),
+                       ('big5',   'cht'),
+                       ('gbk',    'cht')]:
+        if Charset.count_occurrence(sample, enc)[2] < threshold:
+          self.set(enc, lang)
+          break
     else:
-        # In the particular context of subtitles, traditional Chinese is more
-        # likely encoded in BIG5 rather than GBK.
-        #
-        # The priority is GB2312>BIG5>GBK when the bytes can interpreted by at
-        # least two of them. If this is not you want, please let precise=True.
-        if count_in_codec(sample, gb2312)[2] < threshold:
-            enc,lang = 'gb2312','chs'
-        elif count_in_codec(sample, big5)[2] < threshold:
-            enc,lang = 'big5','cht'
-        elif count_in_codec(sample, gbk)[2] < threshold:
-            enc,lang = 'gbk','cht'
+      # GBK and BIG5 share most code points and hence it's almost impossible to
+      # take a right guess by only counting non-interpretable bytes.
+      #
+      # A clever statistic approach can be found at:
+      # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
+      l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',sample))
+      h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',sample))
+      if l == 0:
+        self.set('gb2312','chs')
+      elif float(l)/float(h) < 0.25:
+        self.set('gbk','chi')
+      else:
+        self.set('big5','cht')
 
-    if not enc in ['utf_8', 'ascii']:
-        txt = txt.decode(enc,'ignore').encode('utf_8')
-
-    return enc,lang,txt
+    return self.enc, self.lang
+    
+def guess_locale_and_convert(txt):
+  enc,lang = Charset(txt).guess_locale()
+  if not enc in ['utf_8', 'ascii']:
+    txt = txt.decode(enc,'ignore').encode('utf_8')
+  return enc,lang,txt
         
 ### Application classes
 class Application(object):
@@ -1094,4 +1099,4 @@ if __name__ == '__main__':
             app = Application
             
         app(args).run()
-        
+            

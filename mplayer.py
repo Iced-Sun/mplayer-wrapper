@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-08 14:55:42 by subi>
+# Time-stamp: <2013-01-08 15:45:48 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -38,148 +38,148 @@ from collections import defaultdict
 ### Helper classes and functions
 # http://www.python.org/dev/peps/pep-0318/
 def singleton(cls):
-    instances = {}
-    def getinstance():
-        if cls not in instances:
-            instances[cls] = cls()
-        return instances[cls]
-    return getinstance
+  instances = {}
+  def getinstance():
+    if cls not in instances:
+      instances[cls] = cls()
+    return instances[cls]
+  return getinstance
 
 def which(prog):
-    paths = [''] if os.path.isabs(prog) else os.environ['PATH'].split(os.pathsep)
-    for path in paths:
-        fullpath = os.path.join(path, prog)
-        if os.access(fullpath, os.X_OK):
-            return fullpath
-    return None
+  paths = [''] if os.path.isabs(prog) else os.environ['PATH'].split(os.pathsep)
+  for path in paths:
+    fullpath = os.path.join(path, prog)
+    if os.access(fullpath, os.X_OK):
+      return fullpath
+  return None
 
 def check_screen_dim():
-    '''Select the maximal available screen dimension.
-    '''
-    dim = Dimension()
-    dim_updated = False
+  '''Select the maximal available screen dimension.
+  '''
+  dim = Dimension()
+  dim_updated = False
     
-    if not which('xrandr'):
-        return dim
-
-    for l in subprocess.check_output(['xrandr']).splitlines():
-        if l.startswith('*'): # xrandr 1.1
-            _,w,_,h = l.split()
-        elif '*' in l:        # xrandr 1.2 and above
-            w,h = l.split()[0].split('x')
-        else:
-            continue
-        
-        dim_updated = True
-        if w > dim.width:
-            dim = Dimension(w,h)
-
-    if not dim_updated:
-        logging.info('Cannot find xrandr or unsupported xrandr version. '
-                     'The screen dimension defaults to {0}x{1}.'.format(dim.width, dim.height))
-        
+  if not which('xrandr'):
     return dim
 
+  for l in subprocess.check_output(['xrandr']).splitlines():
+    if l.startswith('*'): # xrandr 1.1
+      _,w,_,h = l.split()
+    elif '*' in l:        # xrandr 1.2 and above
+      w,h = l.split()[0].split('x')
+    else:
+      continue
+        
+    dim_updated = True
+    if w > dim.width:
+      dim = Dimension(w,h)
+
+  if not dim_updated:
+    logging.info('Cannot find xrandr or unsupported xrandr version. '
+                 'The screen dimension defaults to {0}x{1}.'.format(dim.width, dim.height))
+        
+  return dim
+
 class Dimension(object):
-    def __init__(self, width = 640, height = 480):
-        self.width = int(width)
-        self.height = int(height)
-        self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
+  def __init__(self, width = 640, height = 480):
+    self.width = int(width)
+    self.height = int(height)
+    self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
 
 def filter_in(stream, regex):
-    # find matches and join them
-    return b''.join(re.findall('{0}'.format(regex)), stream)
+  # find matches and join them
+  return b''.join(re.findall('{0}'.format(regex)), stream)
 
 def filter_out(stream, regex):
-    # kick out matches and join the remains
-    return b''.join(re.split('(?:{0})+'.format(regex)), stream)
+  # kick out matches and join the remains
+  return b''.join(re.split('(?:{0})+'.format(regex)), stream)
 
 class Charset(object):
-    # http://unicode.org/faq/utf_bom.html#BOM
-    bom = ((b'\x00\x00\xFE\xFF', 'utf_32_be'), (b'\xFF\xFE\x00\x00', 'utf_32_le'),
-           (b'\xFE\xFF',         'utf_16_be'), (b'\xFF\xFE',         'utf_16_le'),
-           (b'\xEF\xBB\xBF',     'utf_8'), )
+  # http://unicode.org/faq/utf_bom.html#BOM
+  bom = ((b'\x00\x00\xFE\xFF', 'utf_32_be'), (b'\xFF\xFE\x00\x00', 'utf_32_le'),
+         (b'\xFE\xFF',         'utf_16_be'), (b'\xFF\xFE',         'utf_16_le'),
+         (b'\xEF\xBB\xBF',     'utf_8'), )
     
-    codec = defaultdict(list)
+  codec = defaultdict(list)
 
-    # http://en.wikipedia.org/wiki/Ascii
-    codec['ascii'] = ('[\x09\x0A\x0D\x20-\x7E]',)
+  # http://en.wikipedia.org/wiki/Ascii
+  codec['ascii'] = ('[\x09\x0A\x0D\x20-\x7E]',)
 
-    # http://en.wikipedia.org/wiki/GBK
-    codec['gbk'] = ('[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
-                    '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
-                    '[\x81-\xA0][\x40-\x7E\x80-\xFE]',     # Level GBK/3
-                    '[\xAA-\xFE][\x40-\x7E\x80-\xA0]',     # Level GBK/4
-                    '[\xA8-\xA9][\x40-\x7E\x80-\xA0]',     # Level GBK/5
-                    '[\xAA-\xAF][\xA1-\xFE]',              # user-defined
-                    '[\xF8-\xFE][\xA1-\xFE]',              # user-defined
-                    '[\xA1-\xA7][\x40-\x7E\x80-\xA0]',     # user-defined
+  # http://en.wikipedia.org/wiki/GBK
+  codec['gbk'] = ('[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
+                  '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
+                  '[\x81-\xA0][\x40-\x7E\x80-\xFE]',     # Level GBK/3
+                  '[\xAA-\xFE][\x40-\x7E\x80-\xA0]',     # Level GBK/4
+                  '[\xA8-\xA9][\x40-\x7E\x80-\xA0]',     # Level GBK/5
+                  '[\xAA-\xAF][\xA1-\xFE]',              # user-defined
+                  '[\xF8-\xFE][\xA1-\xFE]',              # user-defined
+                  '[\xA1-\xA7][\x40-\x7E\x80-\xA0]',     # user-defined
+                  )
+  codec['gb2312'] = codec['gbk'][0:2]
+
+  # http://www.cns11643.gov.tw/AIDB/encodings.do#encode4
+  codec['big5'] = ('[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]',          # 常用字
+                   '\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]',           # 常用字保留範圍/罕用符號區
+                   '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]', # 次常用字
+                   '\xF9[\xD6-\xFE]',                                          # 次常用字保留範圍
+                   '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]', # 符號區標準字
+                   '\xA3[\xC0-\xE0]',                                          # 符號區控制碼
+                   '\xA3[\xE1-\xFE]',                                          # 符號區控制碼保留範圍
+                   '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第一段
+                   '[\x8E-\xA0][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第二段
+                   '[\x81-\x8D][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第三段
+                   )
+
+  # http://www.w3.org/International/questions/qa-forms-utf-8
+  codec['utf_8'] = ('[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
+                    '\xE0[\xA0-\xBF][\x80-\xBF]',        # excluding overlongs
+                    '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}', # straight 3-byte
+                    '\xED[\x80-\x9F][\x80-\xBF]',        # excluding surrogates
+                    '\xF0[\x90-\xBF][\x80-\xBF]{2}',     # planes 1-3
+                    '[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
+                    '\xF4[\x80-\x8F][\x80-\xBF]{2}',     # plane 16
                     )
-    codec['gb2312'] = codec['gbk'][0:2]
 
-    # http://www.cns11643.gov.tw/AIDB/encodings.do#encode4
-    codec['big5'] = ('[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]',          # 常用字
-                     '\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]',           # 常用字保留範圍/罕用符號區
-                     '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]', # 次常用字
-                     '\xF9[\xD6-\xFE]',                                          # 次常用字保留範圍
-                     '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]', # 符號區標準字
-                     '\xA3[\xC0-\xE0]',                                          # 符號區控制碼
-                     '\xA3[\xE1-\xFE]',                                          # 符號區控制碼保留範圍
-                     '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第一段
-                     '[\x8E-\xA0][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第二段
-                     '[\x81-\x8D][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第三段
-                     )
+  @staticmethod
+  def re(enc, with_ascii=True):
+    if with_ascii and not enc == 'ascii':
+      return '|'.join(Charset.codec['ascii']+Charset.codec[enc])
+    else:
+      return '|'.join(Charset.codec[enc])
 
-    # http://www.w3.org/International/questions/qa-forms-utf-8
-    codec['utf_8'] = ('[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
-                      '\xE0[\xA0-\xBF][\x80-\xBF]',        # excluding overlongs
-                      '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}', # straight 3-byte
-                      '\xED[\x80-\x9F][\x80-\xBF]',        # excluding surrogates
-                      '\xF0[\x90-\xBF][\x80-\xBF]{2}',     # planes 1-3
-                      '[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
-                      '\xF4[\x80-\x8F][\x80-\xBF]{2}',     # plane 16
-                      )
+  @staticmethod
+  def count_occurrence(stream, enc):
+    '''ASCII bytes (\x00-\x7F) can be standalone or be the low
+    byte of the pattern. We count them separately.
+      
+    @pattern: the list of code points
+    Return: (#ASCII, #PATTERN, #OTHER)
+    '''
+    interpretable = filter_in(stream, Charset.re(enc))
+    standalone_ascii = filter_out(interpretable, Charset.re(enc,False))
+      
+    return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(stream)-len(interpretable)
 
-    @staticmethod
-    def re(enc, with_ascii=True):
-        if with_ascii and not enc == 'ascii':
-            return '|'.join(Charset.codec['ascii']+Charset.codec[enc])
-        else:
-            return '|'.join(Charset.codec[enc])
+  def detect_BOM(self):
+    for sig,enc in bom:
+      if self.stream.startswith(sig):
+        self.stream = self.stream[len(sig):]
+        return True
+    return False
 
-    @staticmethod
-    def count_occurrence(stream, enc):
-        '''ASCII bytes (\x00-\x7F) can be standalone or be the low
-        byte of the pattern. We count them separately.
+  def __init__(self, stream):
+    self.stream = stream
+    self.enc = 'ascii'
+    self.lang = 'und'
 
-        @pattern: the list of code points
-        Return: (#ASCII, #PATTERN, #OTHER)
-        '''
-        interpretable = filter_in(stream, Charset.re(enc))
-        standalone_ascii = filter_out(interpretable, Charset.re(enc,False))
-        
-        return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(stream)-len(interpretable)
+  def guess_locale(self):
+    if self.detect_BOM():
+      return
 
-    def detect_BOM(self):
-        for sig,enc in bom:
-            if self.stream.startswith(sig):
-                self.stream = self.stream[len(sig):]
-                return True
-        return False
-
-    def __init__(self, stream):
-        self.stream = stream
-        self.enc = 'ascii'
-        self.lang = 'und'
-
-    def guess_locale(self):
-        if self.detect_BOM():
-            return
-
-        # filter out ASCII as much as possible by the heuristic that a
-        # \x00-\x7F byte that following a \x80-\xFF one is not ASCII.
-        pattern = '(?<![\x80-\xFE]){0}'.format(Charset.re('ascii'))
-        sample = filter_out(self.stream, pattern)
+    # filter out ASCII as much as possible by the heuristic that a
+    # \x00-\x7F byte that following a \x80-\xFF one is not ASCII.
+    pattern = '(?<![\x80-\xFE]){0}'.format(Charset.re('ascii'))
+    sample = filter_out(self.stream, pattern)
     
 def guess_locale_and_convert(txt, precise=False):
     # take first 2k bytes
@@ -201,9 +201,9 @@ def guess_locale_and_convert(txt, precise=False):
         if l == 0:
             enc,lang = 'gb2312','chs'
         elif float(l)/float(h) < 0.25:
-            enc,lang = 'gbk','chi'
+          enc,lang = 'gbk','chi'
         else:
-            enc,lang = 'big5','cht'
+          enc,lang = 'big5','cht'
     else:
         # In the particular context of subtitles, traditional Chinese is more
         # likely encoded in BIG5 rather than GBK.
@@ -572,8 +572,10 @@ class MPlayer(object):
         if self.__process != None:
             self.__fifo.send(cmd)
         
-    def play(self, media):
-        args = [self.exe_path] + self.__default_args + media.mplayer_args()
+    def play(self, media=None):
+        args = [self.exe_path] + self.__default_args
+        if media:
+            args += media.mplayer_args()
         logging.debug('\n'+' '.join(args))
         if not config['dry-run']:
             self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)

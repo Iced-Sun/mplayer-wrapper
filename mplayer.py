@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-08 19:48:31 by subi>
+# Time-stamp: <2013-01-09 18:19:19 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -38,194 +38,187 @@ from collections import defaultdict
 ### Helper classes and functions
 # http://www.python.org/dev/peps/pep-0318/
 def singleton(cls):
-  instances = {}
-  def getinstance():
-    if cls not in instances:
-      instances[cls] = cls()
-    return instances[cls]
-  return getinstance
+    instances = {}
+    def getinstance():
+        if cls not in instances:
+            instances[cls] = cls()
+        return instances[cls]
+    return getinstance
 
 def which(prog):
-  paths = [''] if os.path.isabs(prog) else os.environ['PATH'].split(os.pathsep)
-  for path in paths:
-    fullpath = os.path.join(path, prog)
-    if os.access(fullpath, os.X_OK):
-      return fullpath
-  return None
+    paths = [''] if os.path.isabs(prog) else os.environ['PATH'].split(os.pathsep)
+    for path in paths:
+        fullpath = os.path.join(path, prog)
+        if os.access(fullpath, os.X_OK):
+          return fullpath
+    return None
 
 def check_screen_dim():
-  '''Select the maximal available screen dimension.
-  '''
-  dim = Dimension()
-  dim_updated = False
+    '''Select the maximal available screen dimension.
+    '''
+    dim = Dimension()
+    dim_updated = False
     
-  if not which('xrandr'):
+    if not which('xrandr'):
+        return dim
+
+    for l in subprocess.check_output(['xrandr']).splitlines():
+        if l.startswith('*'): # xrandr 1.1
+            _,w,_,h = l.split()
+        elif '*' in l:        # xrandr 1.2 and above
+            w,h = l.split()[0].split('x')
+        else:
+            continue
+        
+        dim_updated = True
+        if w > dim.width:
+            dim = Dimension(w,h)
+
+    if not dim_updated:
+        logging.info('Cannot find xrandr or unsupported xrandr version. '
+                     'The screen dimension defaults to {0}x{1}.'.format(dim.width, dim.height))
+        
     return dim
 
-  for l in subprocess.check_output(['xrandr']).splitlines():
-    if l.startswith('*'): # xrandr 1.1
-      _,w,_,h = l.split()
-    elif '*' in l:        # xrandr 1.2 and above
-      w,h = l.split()[0].split('x')
-    else:
-      continue
-        
-    dim_updated = True
-    if w > dim.width:
-      dim = Dimension(w,h)
-
-  if not dim_updated:
-    logging.info('Cannot find xrandr or unsupported xrandr version. '
-                 'The screen dimension defaults to {0}x{1}.'.format(dim.width, dim.height))
-        
-  return dim
-
 class Dimension(object):
-  def __init__(self, width = 640, height = 480):
-    self.width = int(width)
-    self.height = int(height)
-    self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
+    def __init__(self, width = 640, height = 480):
+        self.width = int(width)
+        self.height = int(height)
+        self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
 
 def filter_in(stream, regex):
-  # find matches and join them
-  return b''.join(re.findall('{0}'.format(regex), stream))
+    # find matches and join them
+    return b''.join(re.findall('{0}'.format(regex), stream))
 
 def filter_out(stream, regex):
-  # kick out matches and join the remains
-  return b''.join(re.split('(?:{0})+'.format(regex), stream))
+    # kick out matches and join the remains
+    return b''.join(re.split('(?:{0})+'.format(regex), stream))
 
+@singleton
 class Charset(object):
-  # http://unicode.org/faq/utf_bom.html#BOM
-  bom = ((b'\x00\x00\xFE\xFF', 'utf_32_be'), (b'\xFF\xFE\x00\x00', 'utf_32_le'),
-         (b'\xFE\xFF',         'utf_16_be'), (b'\xFF\xFE',         'utf_16_le'),
-         (b'\xEF\xBB\xBF',     'utf_8'), )
+    def detect_bom(self, stream):
+        for sig,enc in self.bom:
+            if stream.startswith(sig):
+                return sig,enc
+        return None,None
     
-  codec = defaultdict(list)
-
-  # http://en.wikipedia.org/wiki/Ascii
-  codec['ascii'] = ('[\x09\x0A\x0D\x20-\x7E]',)
-
-  # http://en.wikipedia.org/wiki/GBK
-  codec['gbk'] = ('[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
-                  '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
-                  '[\x81-\xA0][\x40-\x7E\x80-\xFE]',     # Level GBK/3
-                  '[\xAA-\xFE][\x40-\x7E\x80-\xA0]',     # Level GBK/4
-                  '[\xA8-\xA9][\x40-\x7E\x80-\xA0]',     # Level GBK/5
-                  '[\xAA-\xAF][\xA1-\xFE]',              # user-defined
-                  '[\xF8-\xFE][\xA1-\xFE]',              # user-defined
-                  '[\xA1-\xA7][\x40-\x7E\x80-\xA0]',     # user-defined
-                  )
-  codec['gb2312'] = codec['gbk'][0:2]
-
-  # http://www.cns11643.gov.tw/AIDB/encodings.do#encode4
-  codec['big5'] = ('[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]',          # 常用字
-                   '\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]',           # 常用字保留範圍/罕用符號區
-                   '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]', # 次常用字
-                   '\xF9[\xD6-\xFE]',                                          # 次常用字保留範圍
-                   '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]', # 符號區標準字
-                   '\xA3[\xC0-\xE0]',                                          # 符號區控制碼
-                   '\xA3[\xE1-\xFE]',                                          # 符號區控制碼保留範圍
-                   '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第一段
-                   '[\x8E-\xA0][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第二段
-                   '[\x81-\x8D][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第三段
-                   )
-
-  # http://www.w3.org/International/questions/qa-forms-utf-8
-  codec['utf_8'] = ('[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
-                    '\xE0[\xA0-\xBF][\x80-\xBF]',        # excluding overlongs
-                    '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}', # straight 3-byte
-                    '\xED[\x80-\x9F][\x80-\xBF]',        # excluding surrogates
-                    '\xF0[\x90-\xBF][\x80-\xBF]{2}',     # planes 1-3
-                    '[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
-                    '\xF4[\x80-\x8F][\x80-\xBF]{2}',     # plane 16
-                    )
-
-  @staticmethod
-  def re(enc, with_ascii=True):
-    if with_ascii and not enc == 'ascii':
-      return '|'.join(Charset.codec['ascii']+Charset.codec[enc])
-    else:
-      return '|'.join(Charset.codec[enc])
-
-  @staticmethod
-  def count_occurrence(stream, enc):
-    '''ASCII bytes (\x00-\x7F) can be standalone or be the low
-    byte of the pattern. We count them separately.
+    def strip_ascii(self, stream):
+        # filter out ASCII as much as possible by the heuristic that a
+        # \x00-\x7F byte that following \x80-\xFF is not ASCII.
+        pattern = '(?<![\x80-\xFE]){0}'.format(self.generate_regex('ascii'))
+        return filter_out(stream, pattern)
+        
+    def interprete_stream(self, stream, enc):
+        '''ASCII bytes (\x00-\x7F) can be standalone or be the low
+        byte of the pattern. We count them separately.
       
-    @pattern: the list of code points
-    Return: (#ASCII, #PATTERN, #OTHER)
-    '''
-    interpretable = filter_in(stream, Charset.re(enc))
-    standalone_ascii = filter_out(interpretable, Charset.re(enc,False))
+        @pattern: the list of code points
+        Return: (#ASCII, #ENC, #OTHER)
+        '''
+        interpretable = filter_in(stream, self.generate_regex(enc))
+        standalone_ascii = filter_out(interpretable, self.generate_regex(enc,False))
     
-    return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(stream)-len(interpretable)
+        return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(stream)-len(interpretable)
 
-  def set(self, enc, lang):
-    self.enc = enc
-    self.lang = lang
+    def generate_regex(self, enc, with_ascii=True):
+        if with_ascii and not enc == 'ascii':
+            return '|'.join(self.codec['ascii'] + self.codec[enc])
+        else:
+            return '|'.join(self.codec[enc])
+
+    def __init__(self):
+        # http://unicode.org/faq/utf_bom.html#BOM
+        self.bom = ((b'\x00\x00\xFE\xFF', 'utf_32_be'), (b'\xFF\xFE\x00\x00', 'utf_32_le'),
+                    (b'\xFE\xFF',         'utf_16_be'), (b'\xFF\xFE',         'utf_16_le'),
+                    (b'\xEF\xBB\xBF',     'utf_8'), )
+
+        self.codec = defaultdict(list)
+        codec = self.codec
+
+        # http://en.wikipedia.org/wiki/Ascii
+        codec['ascii'] = ('[\x09\x0A\x0D\x20-\x7E]',)
+
+        # http://en.wikipedia.org/wiki/GBK
+        codec['gbk'] = ('[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
+                        '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
+                        '[\x81-\xA0][\x40-\x7E\x80-\xFE]',     # Level GBK/3
+                        '[\xAA-\xFE][\x40-\x7E\x80-\xA0]',     # Level GBK/4
+                        '[\xA8-\xA9][\x40-\x7E\x80-\xA0]',     # Level GBK/5
+                        '[\xAA-\xAF][\xA1-\xFE]',              # user-defined
+                        '[\xF8-\xFE][\xA1-\xFE]',              # user-defined
+                        '[\xA1-\xA7][\x40-\x7E\x80-\xA0]',     # user-defined
+                        )
+        codec['gb2312'] = codec['gbk'][0:2]
+
+        # http://www.cns11643.gov.tw/AIDB/encodings.do#encode4
+        codec['big5'] = ('[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]',          # 常用字
+                         '\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]',           # 常用字保留範圍/罕用符號區
+                         '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]', # 次常用字
+                         '\xF9[\xD6-\xFE]',                                          # 次常用字保留範圍
+                         '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]', # 符號區標準字
+                         '\xA3[\xC0-\xE0]',                                          # 符號區控制碼
+                         '\xA3[\xE1-\xFE]',                                          # 符號區控制碼保留範圍
+                         '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第一段
+                         '[\x8E-\xA0][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第二段
+                         '[\x81-\x8D][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第三段
+                         )
+
+        # http://www.w3.org/International/questions/qa-forms-utf-8
+        codec['utf_8'] = ('[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
+                          '\xE0[\xA0-\xBF][\x80-\xBF]',        # excluding overlongs
+                          '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}', # straight 3-byte
+                          '\xED[\x80-\x9F][\x80-\xBF]',        # excluding surrogates
+                          '\xF0[\x90-\xBF][\x80-\xBF]{2}',     # planes 1-3
+                          '[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
+                          '\xF4[\x80-\x8F][\x80-\xBF]{2}',     # plane 16
+                          )
     
-  def detect_and_strip_BOM(self):
-    for sig,enc in Charset.bom:
-      if self.stream.startswith(sig):
-        self.set(enc, 'und')
-        self.stream = self.stream[len(sig):]
-        return True
-    return False
-
-  def __init__(self, stream):
-    self.stream = stream
-    self.set('ascii', 'eng')
-    
-  def guess(self, naive=True):
-    if self.detect_and_strip_BOM():
-      return self.enc, self.lang
-
-    # filter out ASCII as much as possible by the heuristic that a
-    # \x00-\x7F byte that following a \x80-\xFF one is not ASCII.
-    pattern = '(?<![\x80-\xFE]){0}'.format(Charset.re('ascii'))
-    sample = filter_out(self.stream, pattern)
-
-    # take first 2k bytes
+def guess_locale(stream, naive=True):
+    # prepare the sample
+    sample = Charset().strip_ascii(stream)
     if len(sample)>2048:
-      sample = sample[0:2048]
+        sample = sample[0:2048]
 
     # true when having less than 0.5% (~10) bytes cannot be interpreted
     threshold = int(len(sample) * .005)
-    if naive:
-      # In the particular context of subtitles, traditional Chinese is more
-      # likely encoded in BIG5 rather than GBK.
-      #
-      # The priority is GB2312>BIG5>GBK when the bytes can interpreted by at
-      # least two of them. If this is not you want, please set naive=False.
-      for enc,lang in [('utf_8',  'und'),
-                       ('gb2312', 'chs'),
-                       ('big5',   'cht'),
-                       ('gbk',    'cht')]:
-        if Charset.count_occurrence(sample, enc)[2] < threshold:
-          self.set(enc, lang)
-          break
+    if Charset().interprete_stream(sample, 'utf_8')[2] < threshold:
+        return 'utf_8','und'
+    elif naive:
+        # In the particular context of subtitles, traditional Chinese is more
+        # likely encoded in BIG5 rather than GBK.
+        #
+        # The priority is GB2312>BIG5>GBK when the bytes can interpreted by at
+        # least two of them. If this is not you want, please set naive=False.
+        for enc,lang in [('gb2312','chs'), ('big5','cht'), ('gbk','cht')]:
+            if Charset().interprete_stream(sample, enc)[2] < threshold:
+               return enc,lang 
     else:
-      # GBK and BIG5 share most code points and hence it's almost impossible to
-      # take a right guess by only counting non-interpretable bytes.
-      #
-      # A clever statistic approach can be found at:
-      # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
-      l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',sample))
-      h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',sample))
-      if l == 0:
-        self.set('gb2312','chs')
-      elif float(l)/float(h) < 0.25:
-        self.set('gbk','chi')
-      else:
-        self.set('big5','cht')
+        # GBK and BIG5 share most code points and hence it's almost impossible
+        # to take a right guess by only counting non-interpretable bytes.
+        #
+        # A clever statistic approach can be found at:
+        # http://www.ibiblio.org/pub/packages/ccic/software/data/chrecog.gb.html
+        l = len(re.findall('[\xA1-\xFE][\x40-\x7E]',sample))
+        h = len(re.findall('[\xA1-\xFE][\xA1-\xFE]',sample))
+        if l == 0:
+            return 'gb2312','chs'
+        elif float(l)/float(h) < 0.25:
+            return 'gbk','chi'
+        else:
+            return 'big5','cht'
+    return 'ascii','eng'
 
-    return self.enc, self.lang
-    
-def guess_locale_and_convert(txt):
-  enc,lang = Charset(txt).guess()
-  if not enc in ['utf_8', 'ascii']:
-    txt = txt.decode(enc,'ignore').encode('utf_8')
-  return enc,lang,txt
+def guess_locale_and_convert(stream):
+    sig,enc = Charset().detect_bom(stream)
+    if sig:
+        stream = stream[len(sig):]
+        lang = 'und'
+    else:
+        enc,lang = guess_locale(stream)
+        
+    if not enc in ['utf_8', 'ascii']:
+        stream = stream.decode(enc,'ignore').encode('utf_8')
+    return enc,lang,stream
         
 ### Application classes
 class Application(object):
@@ -279,7 +272,8 @@ class Player(Application):
                 self.args['file'].append(s)
 
         # deliver them
-        MPlayer().add_arg(self.args['valid'])
+        # FIXME: no singleton since we init MPlayer with args?
+        MPlayer(self.args['valid'])
         self.playlist = self.args['file'][:]
         if self.args['invalid']:
             logging.info('Unknown options "' + ' '.join(self.args['invalid']) + '" are ignored.')
@@ -368,48 +362,7 @@ class MPlayerFifo(object):
             self.args = '-input file={0}'.format(self.__path).split()
         except OSError as e:
             logging.info(e)
-            
-def refine_video_geometry(width,height,DAR_advice,DAR_force=None):
-    ''' Guess the best video geometry.
-    
-    References:
-    1. http://www.mir.com/DMG/aspect.html
-    2. http://en.wikipedia.org/wiki/Pixel_aspect_ratio
-    3. http://lipas.uwasa.fi/~f76998/video/conversion
-    '''
-    # storage aspect ratio
-    storage = Dimension(width,height)
 
-    # DAR(display aspect ratio): assume aspects of 4:3, 16:9, or >16:9
-    # (wide-screen movies)
-    def aspect_not_stupid(ar):
-        return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
-
-    # FIXME: luca waltz_bus stop.mp4
-    if DAR_force:
-        DAR = DAR_force
-    elif aspect_not_stupid(DAR_advice):
-        DAR = Fraction(DAR_advice).limit_denominator(9)
-    else:
-        # let's guess
-        if storage.width >= 1280:
-            # http://en.wikipedia.org/wiki/High-definition_television
-            # HDTV is always 16:9
-            DAR = Fraction(16,9)
-        elif storage.width >= 700:
-            # http://en.wikipedia.org/wiki/Enhanced-definition_television
-            # EDTV can be 4:3 or 16:9, blame the video ripper if we
-            # took the wrong guess
-            DAR = Fraction(16,9)
-        else:
-            # http://en.wikipedia.org/wiki/Standard-definition_television
-            # SDTV can be 4:3 or 16:9, blame the video ripper if we
-            # took the wrong guess
-            DAR = Fraction(4,3)
-    # pixel/sample aspect ratio
-    PAR = (DAR/storage.aspect).limit_denominator(82)
-    return storage, DAR, PAR
-    
 class Media(object):
     def is_video(self):
         return self.__info['video']
@@ -431,18 +384,7 @@ class Media(object):
             info['video'] = True
 
             # preparation
-            if '-aspect' in self.args:
-                s = self.args[self.args.index('-aspect')+1]
-                if ':' in s:
-                    x,y = s.split(':')
-                    DAR_force = Fraction(int(x),int(y))
-                else:
-                    DAR_force = Fraction(s)
-            elif 'dsize' in self.args:
-                # TODO
-                pass
-            else:
-                DAR_force = None
+            DAR_force = MPlayer().get_default_aspect()
             w,h = raw['ID_VIDEO_WIDTH'][0], raw['ID_VIDEO_HEIGHT'][0]
             a = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
             info['storage'], info['DAR'], info['PAR'] = refine_video_geometry(w,h,a,DAR_force)
@@ -459,12 +401,6 @@ class Media(object):
                 self.add_arg('-aspect {0.numerator}:{0.denominator}'.format(info['DAR']))
                 self.add_arg('-vf-pre scale={0}:{1}'.format(sw,sh))
 
-            # libass availability
-            if '-noass' in self.args or not MPlayer().support_ass():
-                self.add_arg('-noass')
-            else:
-                self.add_arg('-ass')
-                
             # video expanding
             for item in expand_video(info['DAR'], check_screen_dim().aspect):
                 self.add_arg(item)
@@ -570,6 +506,20 @@ class MPlayer(object):
     last_timestamp = 0.0
     last_exit_status = None
 
+    def get_default_aspect(self):
+        DAR = None
+        if '-aspect' in self.__default_args:
+            s = self.__default_args[self.__default_args.index('-aspect')+1]
+            if ':' in s:
+                x,y = s.split(':')
+                DAR = Fraction(int(x),int(y))
+            else:
+                DAR = Fraction(s)
+        elif 'dsize' in self.__default_args:
+            # TODO
+            pass
+        return DAR
+        
     def add_arg(self,arg):
         self.__default_args += arg
         
@@ -628,7 +578,7 @@ class MPlayer(object):
             self.__gen_opts()
         return self.__opts[opt] if opt in self.__opts else 0
 
-    def __init__(self):
+    def __init__(self, default_args=[]):
         self.exe_path = None
         for p in ['/opt/bin/mplayer','/usr/local/bin/mplayer','/usr/bin/mplayer']:
             if which(p):
@@ -638,10 +588,18 @@ class MPlayer(object):
         self.__mplayer2 = None
         self.__ass = None
         self.__opts = {}
-        self.__default_args = []
-
         self.__fifo = MPlayerFifo()
-        self.add_arg(self.__fifo.args)
+
+        self.__default_args = default_args
+        self.__supplyment_arg = self.__fifo.args
+
+        # libass availability
+        #FIXME!!!
+        if '-ass' in self.__default_args and not MPlayer().support_ass():
+            self.add_arg('-noass')
+        else:
+            self.add_arg('-ass')
+                
 
     def __gen_opts(self):
         options = subprocess.Popen([self.exe_path, '-list-options'], stdout=subprocess.PIPE).communicate()[0].splitlines()
@@ -861,6 +819,47 @@ def fetch_shooter(filepath,filehash):
             logging.debug(e)
     return fetched_subtitles
 
+def refine_video_geometry(width,height,DAR_advice,DAR_force=None):
+    ''' Guess the best video geometry.
+    
+    References:
+    1. http://www.mir.com/DMG/aspect.html
+    2. http://en.wikipedia.org/wiki/Pixel_aspect_ratio
+    3. http://lipas.uwasa.fi/~f76998/video/conversion
+    '''
+    # storage aspect ratio
+    storage = Dimension(width,height)
+
+    # DAR(display aspect ratio): assume aspects of 4:3, 16:9, or >16:9
+    # (wide-screen movies)
+    def aspect_not_stupid(ar):
+        return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
+
+    # FIXME: luca waltz_bus stop.mp4
+    if DAR_force:
+        DAR = DAR_force
+    elif aspect_not_stupid(DAR_advice):
+        DAR = Fraction(DAR_advice).limit_denominator(9)
+    else:
+        # let's guess
+        if storage.width >= 1280:
+            # http://en.wikipedia.org/wiki/High-definition_television
+            # HDTV is always 16:9
+            DAR = Fraction(16,9)
+        elif storage.width >= 700:
+            # http://en.wikipedia.org/wiki/Enhanced-definition_television
+            # EDTV can be 4:3 or 16:9, blame the video ripper if we
+            # took the wrong guess
+            DAR = Fraction(16,9)
+        else:
+            # http://en.wikipedia.org/wiki/Standard-definition_television
+            # SDTV can be 4:3 or 16:9, blame the video ripper if we
+            # took the wrong guess
+            DAR = Fraction(4,3)
+    # pixel/sample aspect ratio
+    PAR = (DAR/storage.aspect).limit_denominator(82)
+    return storage, DAR, PAR
+    
 def expand_video(source_aspect, target_aspect):
     '''This function does 3 things:
     1. Video Expansion:

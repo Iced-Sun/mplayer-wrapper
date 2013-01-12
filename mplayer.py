@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-09 18:19:19 by subi>
+# Time-stamp: <2013-01-12 14:47:50 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -13,8 +13,7 @@
 #    i)   resume last played position
 #    ii)  remember last settings (volume/hue/contrast etc.)
 #    iii) dedicated dir for subtitles
-#    iv)  MPlayerContext
-#    v)   sub_delay info from shooter
+#    iv)   sub_delay info from shooter
 # * remember last volume/hue/contrast for continuous playing (don't need data
 #   persistance)
 # * shooter sometimes return a false subtitle with the same time length. find a
@@ -32,6 +31,7 @@ import subprocess, threading, time
 import hashlib
 import re
 import io
+import json
 from fractions import Fraction
 from collections import defaultdict
 
@@ -240,47 +240,39 @@ class Application(object):
             config['debug'] = True
 
 class Identifier(Application):
-    def run(self):
-        print MPlayer().identify(self.args)
-        
     def __init__(self,args):
         super(Identifier, self).__init__(args)
         self.args = args
 
+    def run(self):
+        print MPlayer().identify(self.args)
+        
 class Player(Application):
     def __init__(self, args):
         super(Player, self).__init__(args)
         self.args = defaultdict(list)
 
-        # parse args
+        self.mplayer = MPlayer()
+        self.mplayer.pick_args(args)
+
+        # parse the left args
         while args:
             s = args.pop(0)
             if s == '--':
                 self.args['file'] += args
                 args = []
             elif s.startswith('-'):
-                flag = MPlayer().has_opt(s.partition('-')[2])
-                if flag == 0:
-                    self.args['invalid'].append(s)
-                elif flag == 1:
-                    self.args['valid'].append(s)
-                elif flag == 2:
-                    self.args['valid'].append(s)
-                    if args:
-                        self.args['valid'].append(args.pop(0))
+                self.args['invalid'].append(s)
             else:
                 self.args['file'].append(s)
 
-        # deliver them
-        # FIXME: no singleton since we init MPlayer with args?
-        MPlayer(self.args['valid'])
         self.playlist = self.args['file'][:]
         if self.args['invalid']:
-            logging.info('Unknown options "' + ' '.join(self.args['invalid']) + '" are ignored.')
+            logging.info('Unknown option(s) "' + ' '.join(self.args['invalid']) + '" are ignored.')
 
     def run(self):
         if not self.playlist:
-            MPlayer().play()
+            self.mplayer.play()
         else:
             # Use a separate thread to reduce the noticeable lag when finding
             # episodes in a big directory.
@@ -298,8 +290,8 @@ class Player(Application):
                 watch_thread.daemon = True
                 watch_thread.start()
 
-                MPlayer().play(m)
-                if MPlayer().last_exit_status == 'Quit':
+                self.mplayer.play(m)
+                if self.mplayer.last_exit_status == 'Quit':
                     break
 
                 playlist_thread.join()
@@ -314,10 +306,6 @@ class Player(Application):
             self.playlist += find_more_episodes(self.args['file'][-1])
             
 class Fetcher(Application):
-    def run(self):
-        for f in self.files:
-            Media(f).fetch_remote_subtitles_and_save(sub_savedir=self.savedir)
-            
     def __init__(self, args):
         self.savedir = None
         self.files = []
@@ -329,6 +317,10 @@ class Fetcher(Application):
             else:
                 self.files += [arg]
 
+    def run(self):
+        for f in self.files:
+            Media(f).fetch_remote_subtitles_and_save(sub_savedir=self.savedir)
+            
 ### Main modules
 class MPlayerFifo(object):
     '''MPlayerFifo will maintain a FIFO for IPC with mplayer.
@@ -384,7 +376,7 @@ class Media(object):
             info['video'] = True
 
             # preparation
-            DAR_force = MPlayer().get_default_aspect()
+            DAR_force = MPlayer().get_cmdline_aspect()
             w,h = raw['ID_VIDEO_WIDTH'][0], raw['ID_VIDEO_HEIGHT'][0]
             a = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
             info['storage'], info['DAR'], info['PAR'] = refine_video_geometry(w,h,a,DAR_force)
@@ -500,129 +492,175 @@ class Media(object):
                                      '{0.numerator}:{0.denominator}'.format(info['PAR']),
                                      '{0.numerator}:{0.denominator}'.format(info['DAR'])))
         logging.debug('\n'+'\n'.join(log_items))
+
+class MPlayerContext(defaultdict):
+    def __init__(self):
+        super(MPlayerContext,self).__init__(bool)
         
+        for p in ['/opt/bin/mplayer','/usr/local/bin/mplayer','/usr/bin/mplayer']:
+            if which(p):
+                self['path'] = p
+                break
+
+        if self['path']:
+            self.__init_context()
+
+    def __update_context(self):
+        options = subprocess.Popen([self['path'], '-list-options'], stdout=subprocess.PIPE).communicate()[0].splitlines()
+        if options[-1].startswith('MPlayer2'):
+            self['mplayer2'] = True
+            option_end = -3
+        else:
+            option_end = -4
+
+        self['option'] = defaultdict(int)
+        for opt in options[3:option_end]:
+            opt = opt.split()
+            name = opt[0].split(':') # don't care sub-option
+            if self['option'][name[0]]:
+                continue
+            self['option'][name[0]] = (2 if len(name)==2 or opt[1]!='Flag' else 1)
+            
+        # handle vf* af*:
+        # mplayer reports option name as vf*, which is a family of options.
+        del self['option']['af*']
+        del self['option']['vf*']
+        for extra in ['af','af-adv','af-add','af-pre','af-del','vf','vf-add','vf-pre','vf-del']:
+            self['option'][extra] = 2
+        for extra in ['af-clr','vf-clr']:
+            self['option'][extra] = 1
+
+        # ASS facility
+        self['ass'] = True
+        if not self['option']['ass']:
+            self['ass'] = False
+        else:
+            libass_path = None
+            for l in subprocess.check_output(['ldd',self['path']]).splitlines():
+                if 'libass' in l:
+                    libass_path = l.split()[2]
+            if not libass_path:
+                self['ass'] = False
+            else:
+                if not 'libfontconfig' in subprocess.check_output(['ldd',libass_path]):
+                    self['ass'] = False
+
+    def __init_context(self):
+        with open(self['path'],'rb') as f:
+            self['hash'] = hashlib.md5(f.read()).hexdigest()
+
+        cache_dir = os.path.expanduser('~/.cache/mplayer-wrapper')
+        cache_file = os.path.join(cache_dir, 'info')
+        
+        loaded_from_cache = False
+        if os.path.exists(cache_file):
+            with open(cache_file,'rb') as f:
+                try:
+                    js = json.load(f)
+                    if js['hash'] == self['hash']:
+                        self['ass'] = js['ass']
+                        self['mplayer2'] = js['mplayer2']
+                        self['option'] = defaultdict(int,js['option'])
+
+                        loaded_from_cache = True
+                except ValueError:
+                    pass
+
+        # rebuild cache if there no one or /usr/bin/mplayer changes
+        if not loaded_from_cache:
+            self.__update_context()
+            
+            # save to disk
+            if not os.path.exists(cache_dir):
+                os.mkdir(cache_dir,0700)
+            with open(cache_file,'wb') as f:
+                json.dump(self, f)
+
 @singleton
 class MPlayer(object):
     last_timestamp = 0.0
     last_exit_status = None
+    
+    def __init__(self, args=[]):
+        self.__fifo = MPlayerFifo()
 
-    def get_default_aspect(self):
+        self.__global_args = []
+        self.__supplement_args = self.__fifo.args
+
+        self.__context = MPlayerContext()
+
+    def pick_args(self, args):
+        # parse args
+        left_args = []
+        cmdline_ass = ''
+        while args:
+            s = args.pop(0)
+            if s == '--':
+                left_args += args
+                args = []
+            elif s.startswith('-'):
+                flag = self.__context['option'][s.partition('-')[2]]
+                if flag == 0:
+                    left_args.append(s)
+                elif flag == 1:
+                    if s == '-ass' or s == '-noass':
+                        cmdline_ass = s
+                    else:
+                        self.__global_args.append(s)
+                elif flag == 2:
+                    self.__global_args.append(s)
+                    if args:
+                        self.__global_args.append(args.pop(0))
+            else:
+                left_args.append(s)
+        args[:] = left_args
+
+        if self.__context['ass']:
+            if cmdline_ass:
+                self.__supplement_args.append(cmdline_ass)
+            else:
+                self.__supplement_args.append('-ass')
+        else:
+            self.__supplement_args.append('-noass')
+
+    def __del__(self):
+        logging.debug('Global args:  {0}\n'
+                      '  Supplement: {1}'.format(self.__global_args, self.__supplement_args))
+        
+    def get_cmdline_aspect(self):
         DAR = None
-        if '-aspect' in self.__default_args:
-            s = self.__default_args[self.__default_args.index('-aspect')+1]
+        if '-aspect' in self.__global_args:
+            s = self.__global_args[self.__global_args.index('-aspect')+1]
             if ':' in s:
                 x,y = s.split(':')
                 DAR = Fraction(int(x),int(y))
             else:
                 DAR = Fraction(s)
-        elif 'dsize' in self.__default_args:
+        elif 'dsize' in self.__global_args:
             # TODO
             pass
         return DAR
-        
-    def add_arg(self,arg):
-        self.__default_args += arg
         
     def send(self, cmd):
         if self.__process != None:
             self.__fifo.send(cmd)
         
-    def play(self, media=None):
-        args = [self.exe_path] + self.__default_args
-        if media:
-            args += media.mplayer_args()
-        logging.debug('\n'+' '.join(args))
-        if not config['dry-run']:
-            self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
-            self.__tee()
-
     def identify(self, args):
-        args = [self.exe_path] + '-vo null -ao null -frames 0 -identify'.split() + args
+        args = [ self.__context['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
         if config['debug']:
             logging.debug('Executing:\n  {0}'.format(' '.join(args)))
         return b'\n'.join([l for l in subprocess.check_output(args).splitlines() if l.startswith(b'ID_')]).decode(config['enc'])
     
-    def support_ass(self):
-        if self.__ass == None:
-            self.__ass = True
-            if not self.has_opt('ass'):
-                self.__ass = False
-            else:
-                libass_path = None
-                for l in subprocess.check_output(['ldd',self.exe_path]).splitlines():
-                    if 'libass' in l:
-                        libass_path = l.split()[2]
-                if not libass_path:
-                    self.__ass = False
-                else:
-                    if not 'libfontconfig' in subprocess.check_output(['ldd',libass_path]):
-                        self.__ass = False
-        return self.__ass
-    
-    def is_mplayer2(self):
-        if self.__mplayer2 == None:
-            if 'MPlayer2' in subprocess.check_output([self.exe_path]).splitlines()[0]:
-                logging.debug('Is a MPlayer2 fork.')
-                self.__mplayer2 = True
-            else:
-                self.__mplayer2 = False
-        return self.__mplayer2
-    
-    def has_opt(self, opt):
-        '''return value:
-        0: don't have the option
-        1: have it and take no param
-        2: have it and take 1 param
-        '''
-        if not self.__opts:
-            self.__gen_opts()
-        return self.__opts[opt] if opt in self.__opts else 0
-
-    def __init__(self, default_args=[]):
-        self.exe_path = None
-        for p in ['/opt/bin/mplayer','/usr/local/bin/mplayer','/usr/bin/mplayer']:
-            if which(p):
-                self.exe_path = p
-                break
-
-        self.__mplayer2 = None
-        self.__ass = None
-        self.__opts = {}
-        self.__fifo = MPlayerFifo()
-
-        self.__default_args = default_args
-        self.__supplyment_arg = self.__fifo.args
-
-        # libass availability
-        #FIXME!!!
-        if '-ass' in self.__default_args and not MPlayer().support_ass():
-            self.add_arg('-noass')
-        else:
-            self.add_arg('-ass')
-                
-
-    def __gen_opts(self):
-        options = subprocess.Popen([self.exe_path, '-list-options'], stdout=subprocess.PIPE).communicate()[0].splitlines()
-        if self.is_mplayer2():
-            options = options[3:len(options)-3]
-        else:
-            options = options[3:len(options)-4]
-
-        for line in options:
-            s = line.split()
-            opt = s[0].split(':') # take care of option:suboption
-            if opt[0] in self.__opts:
-                continue
-            self.__opts[opt[0]] = (2 if len(opt)==2 or s[1]!='Flag' else 1)
-
-        # handle vf* af*:
-        # mplayer reports option name as vf*, which is a family of options.
-        del self.__opts['af*']
-        del self.__opts['vf*']
-        for extra in ['af','af-adv','af-add','af-pre','af-del','vf','vf-add','vf-pre','vf-del']:
-            self.__opts[extra] = 2
-        for extra in ['af-clr','vf-clr']:
-            self.__opts[extra] = 1
+    def play(self, media=None):
+        args = [ self.__context['path'] ] + self.__global_args
+        if media:
+            args += media.mplayer_args()
+            if media.is_video():
+                args += self.__supplement_args
+        logging.debug('\n'+' '.join(args))
+        if not config['dry-run']:
+            self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
+            self.__tee()
 
     def __tee(self):
         def flush_first_line(fileobj, lines):
@@ -1096,6 +1134,6 @@ if __name__ == '__main__':
             app = Identifier
         else:
             app = Application
-            
+
         app(args).run()
-            
+        

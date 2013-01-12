@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-12 18:29:39 by subi>
+# Time-stamp: <2013-01-12 18:39:57 by subi>
 
 from __future__ import unicode_literals
 
@@ -69,12 +69,6 @@ def filter_out(stream, regex):
     # kick out matches and join the remains
     return re.sub(regex, b'', stream)
 
-def detect_bom(stream):
-    for sig,enc in Charset.bom:
-        if stream.startswith(sig):
-            return sig,enc
-    return None,None
-
 def interprete_stream(stream, enc):
     '''ASCII bytes (\x00-\x7F) can be standalone or be the low byte of the
     pattern. We count them separately.
@@ -89,12 +83,11 @@ def interprete_stream(stream, enc):
 
 def guess_locale(stream, naive=True):
     # detect if there is BOM
-    sig,enc = detect_bom(stream)
-    if sig:
-        return enc,len(sig)
+    for sig,enc in Charset.bom:
+        if stream.startswith(sig):
+            return enc,len(sig)
         
     # prepare the sample
-
     # filter out ASCII as much as possible by the heuristic that a \x00-\x7F
     # byte that following \x80-\xFF is not ASCII.
     pattern = b'(?<![\x80-\xFE])' + Charset.generate_regex('ascii')

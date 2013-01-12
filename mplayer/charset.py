@@ -2,41 +2,9 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-12 17:20:53 by subi>
+# Time-stamp: <2013-01-12 18:16:33 by subi>
 
 import re
-
-def filter_in(stream, regex):
-    # find matches and join them
-    return b''.join(re.findall(regex, stream))
-
-def filter_out(stream, regex):
-    # kick out matches and join the remains
-    return b''.join(re.split('(?:{0})+'.format(regex), stream))
-
-def detect_bom(stream):
-    for sig,enc in Charset.bom:
-        if stream.startswith(sig):
-            return sig,enc
-    return None,None
-
-def strip_ascii(stream):
-    # filter out ASCII as much as possible by the heuristic that a \x00-\x7F
-    # byte that following \x80-\xFF is not ASCII.
-    pattern = '(?<![\x80-\xFE]){0}'.format(Charset.generate_regex('ascii'))
-    return filter_out(stream, pattern)
-
-def interprete_stream(stream, enc):
-    '''ASCII bytes (\x00-\x7F) can be standalone or be the low byte of the
-    pattern. We count them separately.
-      
-    @pattern: the list of code points
-    Return: (#ASCII, #ENC, #OTHER)
-    '''
-    interpretable = filter_in(stream, Charset.generate_regex(enc))
-    standalone_ascii = filter_out(interpretable, Charset.generate_regex(enc,False))
-    
-    return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(stream)-len(interpretable)
 
 class Charset(object):
     # http://unicode.org/faq/utf_bom.html#BOM
@@ -91,6 +59,32 @@ class Charset(object):
         else:
             return '|'.join(Charset.codec[enc])
 
+def filter_in(stream, regex):
+    # find matches and join them
+    return b''.join(re.findall(regex, stream))
+
+def filter_out(stream, regex):
+    # kick out matches and join the remains
+    return re.sub(regex, '', stream)
+
+def detect_bom(stream):
+    for sig,enc in Charset.bom:
+        if stream.startswith(sig):
+            return sig,enc
+    return None,None
+
+def interprete_stream(stream, enc):
+    '''ASCII bytes (\x00-\x7F) can be standalone or be the low byte of the
+    pattern. We count them separately.
+      
+    @pattern: the list of code points
+    Return: (#ASCII, #ENC, #OTHER)
+    '''
+    interpretable = filter_in(stream, Charset.generate_regex(enc))
+    standalone_ascii = filter_out(interpretable, Charset.generate_regex(enc,False))
+    
+    return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(stream)-len(interpretable)
+
 def guess_locale(stream, naive=True):
     # detect if there is BOM
     sig,enc = detect_bom(stream)
@@ -98,7 +92,12 @@ def guess_locale(stream, naive=True):
         return enc,len(sig)
         
     # prepare the sample
-    sample = strip_ascii(stream)
+
+    # filter out ASCII as much as possible by the heuristic that a \x00-\x7F
+    # byte that following \x80-\xFF is not ASCII.
+    pattern = '(?<![\x80-\xFE]){0}'.format(Charset.generate_regex('ascii'))
+    sample = filter_out(stream, pattern)
+    
     if len(sample)>2048:
         sample = sample[0:2048]
 
@@ -141,16 +140,10 @@ def guess_locale_and_convert(stream):
     if not enc in ['utf_8', 'ascii']:
         stream = stream.decode(enc,'ignore').encode('utf_8')
     return enc,lang,stream
-        
+
 if __name__ == '__main__':
     import sys
     if len(sys.argv) != 1:
         for path in sys.argv[1:]:
             with open(path,'rb') as f:
-#                print(path,guess_locale(f.read()))
-                s = f.read()
-                regex = Charset.generate_regex('big5')
-                for i in range(20):
-                    a = b''.join(re.split('(?:{0})+'.format(regex), s))
-                    b = re.sub(regex, '', s)
-
+                print(path,guess_locale(f.read()))

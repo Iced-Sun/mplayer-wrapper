@@ -1,8 +1,10 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-12 18:16:33 by subi>
+# Time-stamp: <2013-01-12 18:29:39 by subi>
+
+from __future__ import unicode_literals
 
 import re
 
@@ -15,49 +17,49 @@ class Charset(object):
     codec = {}
 
     # http://en.wikipedia.org/wiki/Ascii
-    codec['ascii'] = ('[\x09\x0A\x0D\x20-\x7E]',)
+    codec['ascii'] = (b'[\x09\x0A\x0D\x20-\x7E]',)
 
     # http://en.wikipedia.org/wiki/GBK
-    codec['gbk'] = ('[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
-                    '[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
-                    '[\x81-\xA0][\x40-\x7E\x80-\xFE]',     # Level GBK/3
-                    '[\xAA-\xFE][\x40-\x7E\x80-\xA0]',     # Level GBK/4
-                    '[\xA8-\xA9][\x40-\x7E\x80-\xA0]',     # Level GBK/5
-                    '[\xAA-\xAF][\xA1-\xFE]',              # user-defined
-                    '[\xF8-\xFE][\xA1-\xFE]',              # user-defined
-                    '[\xA1-\xA7][\x40-\x7E\x80-\xA0]',     # user-defined
+    codec['gbk'] = (b'[\xA1-\xA9][\xA1-\xFE]',              # Level GBK/1
+                    b'[\xB0-\xF7][\xA1-\xFE]',              # Level GBK/2
+                    b'[\x81-\xA0][\x40-\x7E\x80-\xFE]',     # Level GBK/3
+                    b'[\xAA-\xFE][\x40-\x7E\x80-\xA0]',     # Level GBK/4
+                    b'[\xA8-\xA9][\x40-\x7E\x80-\xA0]',     # Level GBK/5
+                    b'[\xAA-\xAF][\xA1-\xFE]',              # user-defined
+                    b'[\xF8-\xFE][\xA1-\xFE]',              # user-defined
+                    b'[\xA1-\xA7][\x40-\x7E\x80-\xA0]',     # user-defined
                     )
     codec['gb2312'] = codec['gbk'][0:2]
 
     # http://www.cns11643.gov.tw/AIDB/encodings.do#encode4
-    codec['big5'] = ('[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]',          # 常用字
-                     '\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]',           # 常用字保留範圍/罕用符號區
-                     '[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]', # 次常用字
-                     '\xF9[\xD6-\xFE]',                                          # 次常用字保留範圍
-                     '[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]', # 符號區標準字
-                     '\xA3[\xC0-\xE0]',                                          # 符號區控制碼
-                     '\xA3[\xE1-\xFE]',                                          # 符號區控制碼保留範圍
-                     '[\xFA-\xFE][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第一段
-                     '[\x8E-\xA0][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第二段
-                     '[\x81-\x8D][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第三段
+    codec['big5'] = (b'[\xA4-\xC5][\x40-\x7E\xA1-\xFE]|\xC6[\x40-\x7E]',          # 常用字
+                     b'\xC6[\xA1-\xFE]|[\xC7\xC8][\x40-\x7E\xA1-\xFE]',           # 常用字保留範圍/罕用符號區
+                     b'[\xC9-\xF8][\x40-\x7E\xA1-\xFE]|\xF9[\x40-\x7E\xA1-\xD5]', # 次常用字
+                     b'\xF9[\xD6-\xFE]',                                          # 次常用字保留範圍
+                     b'[\xA1-\xA2][\x40-\x7E\xA1-\xFE]|\xA3[\x40-\x7E\xA1-\xBF]', # 符號區標準字
+                     b'\xA3[\xC0-\xE0]',                                          # 符號區控制碼
+                     b'\xA3[\xE1-\xFE]',                                          # 符號區控制碼保留範圍
+                     b'[\xFA-\xFE][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第一段
+                     b'[\x8E-\xA0][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第二段
+                     b'[\x81-\x8D][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第三段
                      )
 
     # http://www.w3.org/International/questions/qa-forms-utf-8
-    codec['utf_8'] = ('[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
-                      '\xE0[\xA0-\xBF][\x80-\xBF]',        # excluding overlongs
-                      '[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}', # straight 3-byte
-                      '\xED[\x80-\x9F][\x80-\xBF]',        # excluding surrogates
-                      '\xF0[\x90-\xBF][\x80-\xBF]{2}',     # planes 1-3
-                      '[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
-                      '\xF4[\x80-\x8F][\x80-\xBF]{2}',     # plane 16
+    codec['utf_8'] = (b'[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
+                      b'\xE0[\xA0-\xBF][\x80-\xBF]',        # excluding overlongs
+                      b'[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}', # straight 3-byte
+                      b'\xED[\x80-\x9F][\x80-\xBF]',        # excluding surrogates
+                      b'\xF0[\x90-\xBF][\x80-\xBF]{2}',     # planes 1-3
+                      b'[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
+                      b'\xF4[\x80-\x8F][\x80-\xBF]{2}',     # plane 16
                       )
 
     @staticmethod
     def generate_regex(enc, with_ascii=True):
         if with_ascii and not enc == 'ascii':
-            return '|'.join(Charset.codec['ascii'] + Charset.codec[enc])
+            return b'|'.join(Charset.codec['ascii'] + Charset.codec[enc])
         else:
-            return '|'.join(Charset.codec[enc])
+            return b'|'.join(Charset.codec[enc])
 
 def filter_in(stream, regex):
     # find matches and join them
@@ -65,7 +67,7 @@ def filter_in(stream, regex):
 
 def filter_out(stream, regex):
     # kick out matches and join the remains
-    return re.sub(regex, '', stream)
+    return re.sub(regex, b'', stream)
 
 def detect_bom(stream):
     for sig,enc in Charset.bom:
@@ -95,7 +97,7 @@ def guess_locale(stream, naive=True):
 
     # filter out ASCII as much as possible by the heuristic that a \x00-\x7F
     # byte that following \x80-\xFF is not ASCII.
-    pattern = '(?<![\x80-\xFE]){0}'.format(Charset.generate_regex('ascii'))
+    pattern = b'(?<![\x80-\xFE])' + Charset.generate_regex('ascii')
     sample = filter_out(stream, pattern)
     
     if len(sample)>2048:

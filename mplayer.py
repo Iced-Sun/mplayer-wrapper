@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-12 16:34:10 by subi>
+# Time-stamp: <2013-01-14 09:11:06 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -32,7 +32,6 @@ import hashlib
 import re
 import io
 import json
-from fractions import Fraction
 from collections import defaultdict
 
 ### Application classes
@@ -191,25 +190,12 @@ class Media(object):
             info['video'] = True
 
             # preparation
+            w = int(raw['ID_VIDEO_WIDTH'][0])
+            h = int(raw['ID_VIDEO_HEIGHT'][0])
+            DAR = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
             DAR_force = MPlayer().get_cmdline_aspect()
-            w,h = raw['ID_VIDEO_WIDTH'][0], raw['ID_VIDEO_HEIGHT'][0]
-            a = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
-            info['storage'], info['DAR'], info['PAR'] = refine_video_geometry(w,h,a,DAR_force)
-            
-            # non-square pixel fix
-            if info['PAR'] != 1:
-                # work-around for stretched osd/subtitle after applying -aspect
-                sw = info['storage'].width
-                sh = info['storage'].height
-                if info['storage'].width >= 1280:
-                    sh = int(sw / info['DAR'])
-                else:
-                    sw = int(sh * info['DAR'])
-                self.add_arg('-aspect {0.numerator}:{0.denominator}'.format(info['DAR']))
-                self.add_arg('-vf-pre scale={0}:{1}'.format(sw,sh))
 
-            # video expanding
-            for item in expand_video(info['DAR'], check_screen_dim().aspect):
+            for item in apply_geometry_fix(w,h,DAR,DAR_force)
                 self.add_arg(item)
 
             # subtitles
@@ -243,7 +229,6 @@ class Media(object):
             unrar = which('unrar')
             if unrar:
                 self.add_arg('-unrarexec {0}'.format(unrar))
-
         
     def fetch_remote_subtitles_and_save(self, sub_savedir=None, load_in_mplayer=False):
         info = self.__info
@@ -524,364 +509,6 @@ class MPlayer(object):
         logging.debug('Last exit status: {0}'.format(self.last_exit_status))
         self.__process = None
 
-def save_to_disk(subtitles, filepath, save_dir=None):
-    prefix,_ = os.path.splitext(filepath)
-    if save_dir:
-        prefix = os.path.join(save_dir, os.path.basename(prefix))
-
-    # save subtitles
-    for s in subtitles:
-        suffix = '.' + s['lang'] if not s['lang'] == 'und' else ''
-                
-        path = prefix + suffix + '.' + s['extension']
-        if os.path.exists(path):
-            path = prefix + suffix + '1.' + s['extension']
-        with open(path,'wb') as f:
-            f.write(s['content'])
-            logging.info('Saved the subtitle as {0}'.format(path))
-            s['path'] = path
-
-def force_utf8_and_filter_duplicates(subtitles):
-    logging.debug('Trying to filter duplicated subtitles...')
-
-    for s in subtitles:
-        _,s['lang'],s['content'] = guess_locale_and_convert(s['content'])
-            
-    dup_tag = [False]*len(subtitles)
-    for i in range(len(subtitles)):
-        if dup_tag[i]:
-            continue
-        for j in range(i+1, len(subtitles)):
-            sa = subtitles[i]
-            sb = subtitles[j]
-            if sa['extension'] != sb['extension'] or sa['lang'] != sb['lang']:
-                continue
-            import difflib
-            similarity = difflib.SequenceMatcher(None, sa['content'], sb['content']).real_quick_ratio()
-            logging.debug('Similarity is {0}.'.format(similarity))
-            if similarity > 0.9:
-                dup_tag[j] = True
-    # TODO: reserve longer subtitles 
-    subtitles = [subtitles[i] for i in range(len(subtitles)) if not dup_tag[i]]
-    logging.debug('{0} subtitle(s) reserved after duplicates filtering.'.format(len(subtitles)))
-
-def parse_shooter_package(fileobj):
-    '''Parse shooter returned package of subtitles.
-    Return subtitles encoded in UTF-8.
-    '''
-    subtitles = []
-    f = fileobj
-
-    # read contents
-    import struct
-    c = f.read(1)
-    package_count = struct.unpack(b'!b', c)[0]
-
-    for i in range(package_count):
-        # NOTE: '_' is the length of following byte-stream
-        c = f.read(8)
-        _,desc_length = struct.unpack(b'!II', c)
-        description = f.read(desc_length).decode('utf_8')
-        sub_delay = description.partition('=')[2] / 1000.0 if description and 'delay' in description else 0
-        if description:
-            logging.debug('Subtitle description: {0}'.format(description))
-
-        c = f.read(5)
-        _,file_count = struct.unpack(b'!IB', c)
-            
-        for j in range(file_count):
-            c = f.read(8)
-            _,ext_len = struct.unpack(b'!II', c)
-            ext = f.read(ext_len)
-
-            c = f.read(4)
-            file_len = struct.unpack(b'!I', c)[0]
-            sub = f.read(file_len)
-            if sub.startswith(b'\x1f\x8b'):
-                import gzip
-                sub = gzip.GzipFile(fileobj=io.BytesIO(sub)).read()
-
-            subtitles.append({'extension': ext,
-                              'delay': sub_delay,
-                              'content': sub})
-
-    logging.debug('{0} subtitle(s) fetched.'.format(len(subtitles)))
-    return subtitles
-
-def fetch_shooter(filepath,filehash):
-    import httplib
-    schemas = ['http', 'https'] if hasattr(httplib, 'HTTPS') else ['http']
-    servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
-    splayer_rev = 2437 # as of 2012-07-02
-    tries = [2, 10, 30, 60, 120]
-
-    # generate data for submission
-    # shooter.cn uses UTF-8.
-    head,tail = os.path.split(filepath)
-    pathinfo = '\\'.join(['D:', os.path.basename(head), tail])
-    v_fingerpint = b'SP,aerSP,aer {0} &e(\xd7\x02 {1} {2}'.format(splayer_rev, pathinfo.encode('utf_8'), filehash.encode('utf_8'))
-    vhash = hashlib.md5(v_fingerpint).hexdigest()
-    import random
-    boundary = '-'*28 + '{0:x}'.format(random.getrandbits(48))
-
-    header = [('User-Agent',   'SPlayer Build {0}'.format(splayer_rev)),
-              ('Content-Type', 'multipart/form-data; boundary={0}'.format(boundary))
-              ]
-    items = [('filehash', filehash), ('pathinfo', pathinfo), ('vhash', vhash)]
-    data = ''.join(['--{0}\n'
-                    'Content-Disposition: form-data; name="{1}"\n\n'
-                    '{2}\n'.format(boundary, *d) for d in items]
-                   + ['--' + boundary + '--'])
-
-    if config['dry-run']:
-        print 'DRY-RUN: Were trying to fetch subtitles for {0}.'.format(filepath)
-        return None
-        
-#        app.send('osd_show_text "正在查询字幕..." 5000')
-#            app.send('osd_show_text "查询字幕失败." 3000')
-
-    # fetch
-    import urllib2
-    for i, t in enumerate(tries):
-        try:
-            logging.debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(tries)+1))
-            time.sleep(t)
-
-            url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(schemas), random.choice(servers))
-
-            # shooter.cn uses UTF-8.
-            req = urllib2.Request(url.encode('utf_8'))
-            for h in header:
-                req.add_header(h[0].encode('utf_8'), h[1].encode('utf_8'))
-            req.add_data(data.encode('utf_8'))
-
-            logging.debug('Connecting server {0} with the submission:\n'
-                          '\n{1}\n'
-                          '{2}\n'.format(url,
-                                         '\n'.join(['{0}:{1}'.format(*h) for h in header]),
-                                         data))
-
-            # todo: with context manager
-            response = urllib2.urlopen(req)
-            fetched_subtitles = parse_shooter_package(response)
-            response.close()
-
-            if fetched_subtitles:
-                break
-        except urllib2.URLError, e:
-            logging.debug(e)
-    return fetched_subtitles
-
-def refine_video_geometry(width,height,DAR_advice,DAR_force=None):
-    ''' Guess the best video geometry.
-    
-    References:
-    1. http://www.mir.com/DMG/aspect.html
-    2. http://en.wikipedia.org/wiki/Pixel_aspect_ratio
-    3. http://lipas.uwasa.fi/~f76998/video/conversion
-    '''
-    # storage aspect ratio
-    storage = Dimension(width,height)
-
-    # DAR(display aspect ratio): assume aspects of 4:3, 16:9, or >16:9
-    # (wide-screen movies)
-    def aspect_not_stupid(ar):
-        return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
-
-    # FIXME: luca waltz_bus stop.mp4
-    if DAR_force:
-        DAR = DAR_force
-    elif aspect_not_stupid(DAR_advice):
-        DAR = Fraction(DAR_advice).limit_denominator(9)
-    else:
-        # let's guess
-        if storage.width >= 1280:
-            # http://en.wikipedia.org/wiki/High-definition_television
-            # HDTV is always 16:9
-            DAR = Fraction(16,9)
-        elif storage.width >= 700:
-            # http://en.wikipedia.org/wiki/Enhanced-definition_television
-            # EDTV can be 4:3 or 16:9, blame the video ripper if we
-            # took the wrong guess
-            DAR = Fraction(16,9)
-        else:
-            # http://en.wikipedia.org/wiki/Standard-definition_television
-            # SDTV can be 4:3 or 16:9, blame the video ripper if we
-            # took the wrong guess
-            DAR = Fraction(4,3)
-    # pixel/sample aspect ratio
-    PAR = (DAR/storage.aspect).limit_denominator(82)
-    return storage, DAR, PAR
-    
-def expand_video(source_aspect, target_aspect):
-    '''This function does 3 things:
-    1. Video Expansion:
-       Attach two black bands to the top and bottom of a video so that MPlayer
-       can put OSD/texts in the bands. Be ware that the video expansion will
-       change the video size (normally height), e.g. a 1280x720 video will be
-       1280x960 after an expansion towards 4:3.
-
-       Doing expansion is trivial because there is a '-vf expand' MPlayer
-       option. '-vf expand' can change the size of a video to fit a specific
-       aspect by attaching black bands (not scaling!). The black bands may be
-       attached vertically when changing towards a smaller aspect (e.g. 16:9 to
-       4:3 conversion), or horizontal vise versa (e.g. 4:3 to 16:9 conversion).
-
-       The '-ass-use-margins' was once used instead because of the
-       incompatibility (subtitle overlapping issue) between '-vf expand' and
-       the '-ass' subtitle renderer. This method can only attach black bands
-       vertically ('-ass-top-margin' and '-ass-bottom-margin').
-           
-    2. Font-size Normalization:
-       Make the subtitle font be the same size when displayed full-screen in
-       the same screen for any video.
-           
-    3. Expansion Compactness:
-       Place the subtitle as close to the picture as possible (instead of the
-       very top/bottom of the screen, which is visual distracting).
-
-    The problems of the Font-size Normalization and Expansion Compactness bring
-    the main complexities. To understand what has been done here, we first
-    describe how the font size is determined in MPlayer.
-
-    There are two OSD/subtitle renderers in MPlayer: one depends FreeType and
-    the other libass. OSD is always rendered through FreeType; text subtitles
-    (not vobsub) are rendered through libass if '-ass' is specified, or
-    FreeType otherwise.
-
-    As for mplayer2, the FreeType renderer has been dropped completely since
-    Aug. 2012; libass is used for all the OSD/subtitle rendering.
-    (http://git.mplayer2.org/mplayer2/commit/?id=083e6e3e1a9bf9ee470f59cfd1c775c8724c5ed9)
-    The -noass option is indeed applying a plain ASS style that mimics the
-    FreeType renderer.
-
-    From here on, (X,Y) denotes the display size of a video. Remember that its
-    aspect ratio is subject to being changed by '-vf expand'.
-        
-    Here are the details:
-    1. The FreeType Renderer:
-                      font_size = movie_size * font_scale_factor / 100
-       Simple and clear.
-
-       The movie_size is determined by the option '-subfont-autoscale':
-       a. subfont-autoscale = 0 (no autoscale):
-                      movie_size = 100
-       b. subfont-autoscale = 1 (proportional to video height):
-                      movie_size = Y
-       c. subfont-autoscale = 2 (proportional to video width):
-                      movie_size = X
-       d. subfont-autoscale = 3 (proportional to video diagonal):
-                      movie_size = sqrt(X^2+Y^2)
-
-       The font_scale_factor is assigned by the option '-subfont-text-scale'
-       and '-subfont-osd-scale', which defaults to 3.5 and 4.0, respectively,
-       and applies to subtitles and OSD, respectively.
-           
-    2. The libass Renderer:
-       MPlayer provides some ASS styles for libass; font-scale involved styles
-       are:
-       i).  PlayResX,PlayResY
-            They are the source frame (i.e. the reference frame for ASS style
-            with an absolute value, e.g. FontSize and Margins).
-
-            PlayResY defaults to 288 and. PlayResX defaults to PlayResY/1.3333,
-            which is 384.
-       ii). ScaleX,ScaleY
-            These font scales default to 1.
-       iii).FontSize
-            As pointed above, the FontSize is the size in the reference frame
-            (PlayResX,PlayResY).
-                      FontSize = PlayResY * font_scale_factor / 100
-
-            The font_scale_factor is again assigned by the option
-            '-subfont-text-scale' and '-subfont-osd-scale', which applies to
-            subtitles and OSD, respectively. (Be ware that OSD is rendered by
-            libass in mplayer2.)
-                      
-            The option '-subfont-autoscale' will affect the FontSize as
-            well. Although this is in fact meaningless because the font size is
-            always proportional to video height only in libass renderer, a
-            correction that corresponds to about 4:3 aspect ratio video is
-            applied to get a size somewhat closer to what non-libass rendering.
-            a. subfont-autoscale = 0 (no autoscale):
-                      ignored
-            b. subfont-autoscale = 1 (proportional to video height):
-                      ignored
-            c. subfont-autoscale = 2 (proportional to video width):
-                      FontSize *= 1.3
-            d. subfont-autoscale = 3 (proportional to video diagonal):
-                      FontSize *= 1.4 (mplayer)
-                      FontSize *= 1.7 (mplayer2)
-       iv). font_size_coeff
-            This is not an ASS style but an extra parameter for libass. The
-            value is specified by the '-ass-font-scale' MPlayer option.
-
-       libass does the real work as follows:
-       i). determine the scale factor for (PlayResX,PlayResY)->(X,Y)
-                      font_scale = font_size_coeff * Y/PlayResY
-       ii).apply the font scale:
-                      font_x = FontSize * font_scale * ScaleX
-                      font_y = FontSize * font_scale * ScaleY
-
-       Combining all the procedure and supposing that the ASS styles take
-       default values, the font size displayed in frame (X,Y) is:
-               font_size = font_size_coeff * font_scale_factor * Y/100  (*)
-
-    Now let's try the font size normalization. What we need is the Y_screen
-    proportionality of the font size. (Of course you can use X or diagonal
-    instead of Y).
-    1. If we don't care the expansion compactness, the video will be expanded
-       to the screen aspect, hence Y = Y_screen. There is nothing to be done
-       for libass renderer, as the font size is proportional to Y (see *).
-
-       For the FreeType renderer, as long as subfont-autoscale is enabled, the
-       font size is always proportional to Y because of the fixed aspect.
-
-    2. If we want to make the expansion compact, the display aspect of the
-       expanded video will be typically larger than the screen aspect. Let's do
-       some calculations:
-       a. display_aspect > screen_aspect
-                    font_size ∝ Y = Y_screen / display_aspect:screen_aspect
-       b. display_aspect = screen_aspect
-                    font_size ∝ Y = Y_screen
-       c. display_aspect < screen_aspect
-          Won't happen because we do horizontal expansion if display_aspect <
-          screen_aspect so the result is always display_aspect = screen_aspect.
-
-    Let font_scale_factor *= display_aspect:screen_aspect resolve all the
-    problem. For FreeType renderer, we will want to set subfont-autoscale=1 or
-    else an additional correction has to be applied.
-    '''
-    args = []
-    # the video is too narrow (<4:3); assume 4:3
-    if source_aspect < Fraction(4,3):
-        args.append('-vf-add dsize=4/3')
-
-    # be proportional to height
-    args.append('-subfont-autoscale 1')
-
-    # default scales
-    scale_base_factor = 1.5
-    subfont_text_scale = 3.5 * scale_base_factor
-    subfont_osd_scale = 4 * scale_base_factor
-
-    # expansion compactness:
-    # a margin take 1.8 lines of 18-pixels font in screen of height 288
-    margin_scale = 18.0/288.0 * 1.8 * scale_base_factor
-    expected_aspect = source_aspect / (1+2*margin_scale)
-    if expected_aspect > target_aspect:
-        display_aspect = expected_aspect
-        subfont_text_scale *= expected_aspect/target_aspect
-    else:
-        display_aspect = target_aspect
-
-    # generate MPlayer args
-    args.append('-vf-add expand=::::1:{0}'.format(display_aspect))
-    args.append('-subfont-text-scale {0}'.format(subfont_text_scale))
-    args.append('-subfont-osd-scale {0}'.format(subfont_osd_scale))
-
-    return args
-       
 def find_more_episodes(filepath):
     '''Try to find some following episodes/parts.
     '''

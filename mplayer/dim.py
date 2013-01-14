@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-12 19:23:43 by subi>
+# Time-stamp: <2013-01-14 09:02:45 by subi>
 
 from aux import which
 
@@ -12,63 +12,42 @@ from fractions import Fraction
 def check_screen_dim():
     '''Select the maximal available screen dimension.
     '''
-    dim = Dimension()
-    dim_updated = False
-    
-    if not which('xrandr'):
-        return dim
-
-    for l in subprocess.check_output(['xrandr']).splitlines():
-        if l.startswith('*'): # xrandr 1.1
-            _,w,_,h = l.split()
-        elif '*' in l:        # xrandr 1.2 and above
-            w,h = l.split()[0].split('x')
-        else:
-            continue
-        
-        dim_updated = True
-        if w > dim.width:
-            dim = Dimension(w,h)
-
-    if not dim_updated:
-        logging.info('Cannot find xrandr or unsupported xrandr version. '
-                     'The screen dimension defaults to {0}x{1}.'.format(dim.width, dim.height))
-        
+    dim = (640,480)
+    if which('randr'):
+        for l in subprocess.check_output(['randr']).splitlines():
+            if l.startswith('*'): # xrandr 1.1
+                _,w,_,h = l.split()
+            elif '*' in l:        # xrandr 1.2 and above
+                w,h = l.split()[0].split('x')
+            else:
+                continue
+            if w > dim[0]:
+                dim = (w,h)
     return dim
 
-class Dimension(object):
-    def __init__(self, width = 640, height = 480):
-        self.width = int(width)
-        self.height = int(height)
-        self.aspect = Fraction(self.width,self.height) if not self.height == 0 else Fraction(0)
-
-def refine_video_geometry(width,height,DAR_advice,DAR_force=None):
-    ''' Guess the best video geometry.
+def normalize_DAR(w,h,DAR):
+    '''Determine a reasonable display aspect ratio.
     
     References:
     1. http://www.mir.com/DMG/aspect.html
     2. http://en.wikipedia.org/wiki/Pixel_aspect_ratio
     3. http://lipas.uwasa.fi/~f76998/video/conversion
     '''
-    # storage aspect ratio
-    storage = Dimension(width,height)
+    def aspect_not_stupid(a):
+        # aspects of 4:3, 16:9, or >16:9 are NOT stupid
+        return abs(a-Fraction(4,3))<0.02 or a-Fraction(16,9)>-0.02
 
-    # DAR(display aspect ratio): accept aspects of 4:3, 16:9, or >16:9
-    def aspect_not_stupid(ar):
-        return abs(ar-Fraction(4,3))<0.02 or ar-Fraction(16,9)>-0.02
-
+    # display aspect ratio
     # FIXME: luca waltz_bus stop.mp4
-    if DAR_force:
-        DAR = DAR_force
-    elif aspect_not_stupid(DAR_advice):
-        DAR = Fraction(DAR_advice).limit_denominator(9)
+    if aspect_not_stupid(DAR):
+        DAR = Fraction(DAR).limit_denominator(9)
     else:
         # let's guess
-        if storage.width >= 1280:
+        if w >= 1280:
             # http://en.wikipedia.org/wiki/High-definition_television
             # HDTV is always 16:9
             DAR = Fraction(16,9)
-        elif storage.width >= 700:
+        elif w >= 700:
             # http://en.wikipedia.org/wiki/Enhanced-definition_television
             # EDTV can be 4:3 or 16:9, blame the video ripper if we
             # took the wrong guess
@@ -78,11 +57,10 @@ def refine_video_geometry(width,height,DAR_advice,DAR_force=None):
             # SDTV can be 4:3 or 16:9, blame the video ripper if we
             # took the wrong guess
             DAR = Fraction(4,3)
-    # pixel/sample aspect ratio
-    PAR = (DAR/storage.aspect).limit_denominator(82)
-    return storage, DAR, PAR
-    
-def expand_video(source_aspect, target_aspect):
+
+    return DAR
+
+def expand_video(source_aspect, target_aspect=None):
     '''This function does 3 things:
     1. Video Expansion:
        Attach two black bands to the top and bottom of a video so that MPlayer
@@ -197,7 +175,7 @@ def expand_video(source_aspect, target_aspect):
                font_size = font_size_coeff * font_scale_factor * Y/100  (*)
 
     Now let's try the font size normalization. What we need is the Y_screen
-    proportionality of the font size. (Of course you can use X or diagonal
+    proportionality to the font size. (Of course you can use X or diagonal
     instead of Y).
     1. If we don't care the expansion compactness, the video will be expanded
        to the screen aspect, hence Y = Y_screen. There is nothing to be done
@@ -221,10 +199,9 @@ def expand_video(source_aspect, target_aspect):
     problem. For FreeType renderer, we will want to set subfont-autoscale=1 or
     else an additional correction has to be applied.
     '''
-    args = []
-    # be proportional to height
-    args.append('-subfont-autoscale 1')
-
+    if not target_aspect:
+        target_aspect = Fraction(*check_screen_dim())
+    
     # default scales
     scale_base_factor = 1.5
     subfont_text_scale = 3.5 * scale_base_factor
@@ -241,11 +218,30 @@ def expand_video(source_aspect, target_aspect):
         display_aspect = target_aspect
 
     # generate MPlayer args
-    args.append('-vf-add expand=::::1:{0}'.format(display_aspect))
-    args.append('-subfont-text-scale {0}'.format(subfont_text_scale))
-    args.append('-subfont-osd-scale {0}'.format(subfont_osd_scale))
+    args = ['-subfont-autoscale 1', # proportional to height
+            '-vf-add expand=::::1:{0}'.format(display_aspect),
+            '-subfont-text-scale {0}'.format(subfont_text_scale),
+            '-subfont-osd-scale {0}'.format(subfont_osd_scale)]
 
     return args
 
+def apply_geometry_fix(w,h,DAR_advice,DAR_force=None):
+    if DAR_force:
+        DAR = DAR_force
+    else:
+        DAR = normalize_DAR(w,h,DAR_advice)
+
+    args = []
+    if not DAR == Fraction(w,h):
+        # work-around for stretched osd/subtitle after applying -aspect
+        if w >= 1280:
+            h = int(w / DAR)
+        else:
+            w = int(h * DAR)
+        args.append('-aspect {0.numerator}:{0.denominator}'.format(DAR))
+        args.append('-vf-pre scale={0}:{1}'.format(w,h))
+
+    return args + expand_video(DAR)
+        
 if __name__ == '__main__':
-    print check_screen_dim()
+    print apply_geometry_fix(1152, 768, Fraction(16,9))

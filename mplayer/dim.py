@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-14 09:02:45 by subi>
+# Time-stamp: <2013-01-14 09:07:59 by subi>
 
 from aux import which
 
@@ -244,4 +244,4 @@ def apply_geometry_fix(w,h,DAR_advice,DAR_force=None):
     return args + expand_video(DAR)
         
 if __name__ == '__main__':
-    print apply_geometry_fix(1152, 768, Fraction(16,9))
+    print(apply_geometry_fix(1152, 768, Fraction(16,9)))

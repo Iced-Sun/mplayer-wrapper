@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-12 16:31:56 by subi>
+# Time-stamp: <2013-01-12 19:03:01 by subi>
 
-### Helper classes and functions
+import os
+
 # http://www.python.org/dev/peps/pep-0318/
 def singleton(cls):
     instances = {}

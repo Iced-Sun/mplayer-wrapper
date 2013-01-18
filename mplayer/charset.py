@@ -2,10 +2,23 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-18 19:11:46 by subi>
+# Time-stamp: <2013-01-18 23:54:17 by subi>
 
 from __future__ import unicode_literals
 
+# interface
+def guess_locale_and_convert(stream):
+    enc,lang = guess_locale(stream)
+
+    if isinstance(lang,int):
+        stream = stream[lang:]
+        lang = 'und'
+        
+    if not enc in ['utf_8', 'ascii']:
+        stream = stream.decode(enc,'ignore').encode('utf_8')
+    return enc,lang,stream
+
+# implementation
 import re
 
 class Charset(object):
@@ -124,17 +137,6 @@ def guess_locale(stream, naive=True):
         else:
             return 'big5','cht'
     return 'ascii','eng'
-
-def guess_locale_and_convert(stream):
-    enc,lang = guess_locale(stream)
-
-    if isinstance(lang,int):
-        stream = stream[lang:]
-        lang = 'und'
-        
-    if not enc in ['utf_8', 'ascii']:
-        stream = stream.decode(enc,'ignore').encode('utf_8')
-    return enc,lang,stream
 
 if __name__ == '__main__':
     import sys

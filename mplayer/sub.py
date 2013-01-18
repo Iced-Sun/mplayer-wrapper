@@ -2,13 +2,9 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-18 23:48:46 by subi>
+# Time-stamp: <2013-01-19 00:01:38 by subi>
 
 from __future__ import unicode_literals
-
-from mplayer.charset import guess_locale_and_convert
-
-import os,hashlib,logging,time,io
 
 # interface
 class RemoteSubtitleHandler(object):
@@ -26,7 +22,11 @@ class RemoteSubtitleHandler(object):
         self.__dry_run = dry_run
         self.__subs = []
 
+
 # implementation
+from mplayer.charset import guess_locale_and_convert
+import os,hashlib,logging,time,io
+
 def save_to_disk(subtitles, filepath, save_dir=None):
     prefix,_ = os.path.splitext(filepath)
     if save_dir:
@@ -35,10 +35,11 @@ def save_to_disk(subtitles, filepath, save_dir=None):
     # save subtitles
     for s in subtitles:
         suffix = '.' + s['lang'] if not s['lang'] == 'und' else ''
-                
+        while os.path.exists(prefix+suffix+'.'+s['extension']):
+            suffix = suffix + '1'
+
         path = prefix + suffix + '.' + s['extension']
-        if os.path.exists(path):
-            path = prefix + suffix + '1.' + s['extension']
+
         with open(path,'wb') as f:
             f.write(s['content'])
             logging.info('Saved the subtitle as {0}'.format(path))

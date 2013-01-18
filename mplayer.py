@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-14 09:11:06 by subi>
+# Time-stamp: <2013-01-18 23:42:03 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -24,6 +24,8 @@
 # * use ffprobe for better(?) metainfo detection?
 
 from __future__ import unicode_literals
+
+from mplayer.aux import singleton,which
 
 import logging
 import os,sys
@@ -195,7 +197,7 @@ class Media(object):
             DAR = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
             DAR_force = MPlayer().get_cmdline_aspect()
 
-            for item in apply_geometry_fix(w,h,DAR,DAR_force)
+            for item in apply_geometry_fix(w,h,DAR,DAR_force):
                 self.add_arg(item)
 
             # subtitles
@@ -231,6 +233,7 @@ class Media(object):
                 self.add_arg('-unrarexec {0}'.format(unrar))
         
     def fetch_remote_subtitles_and_save(self, sub_savedir=None, load_in_mplayer=False):
+        from mplayer.sub import RemoteSubtitleHandler
         info = self.__info
 
         if not info['subtitle']:
@@ -245,12 +248,7 @@ class Media(object):
             pass
         else:
             # whatever
-            info['subtitle']['remote'] = fetch_shooter(info['abspath'],info['shash'])
-
-        if info['subtitle']['remote']:
-            force_utf8_and_filter_duplicates(info['subtitle']['remote'])
-            save_to_disk(info['subtitle']['remote'], info['abspath'], sub_savedir)
-
+            info['subtitle']['remote'] = RemoteSubtitleHandler(info['abspath'],info['shash'],config['dry-run']).fetch_and_save(sub_savedir)
             if load_in_mplayer:
                 for s in info['subtitle']['remote']:
                     MPlayer().send('sub_load "{0}"'.format(s['path']))

@@ -2,8 +2,31 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-14 09:11:16 by subi>
+# Time-stamp: <2013-01-18 23:48:46 by subi>
 
+from __future__ import unicode_literals
+
+from mplayer.charset import guess_locale_and_convert
+
+import os,hashlib,logging,time,io
+
+# interface
+class RemoteSubtitleHandler(object):
+    def fetch_and_save(self, save_dir=None):
+        self.__subs = fetch_shooter(self.__path,self.__shash,self.__dry_run)
+        if self.__subs:
+            force_utf8_and_filter_duplicates(self.__subs)
+            save_to_disk(self.__subs, self.__path, save_dir)
+
+        return [s['path'] for s in self.__subs]
+    
+    def __init__(self, media_path, media_shash, dry_run):
+        self.__path = media_path
+        self.__shash = media_shash
+        self.__dry_run = dry_run
+        self.__subs = []
+
+# implementation
 def save_to_disk(subtitles, filepath, save_dir=None):
     prefix,_ = os.path.splitext(filepath)
     if save_dir:
@@ -88,7 +111,7 @@ def parse_shooter_package(fileobj):
     logging.debug('{0} subtitle(s) fetched.'.format(len(subtitles)))
     return subtitles
 
-def fetch_shooter(filepath,filehash):
+def fetch_shooter(filepath,filehash,dry_run=False):
     import httplib
     schemas = ['http', 'https'] if hasattr(httplib, 'HTTPS') else ['http']
     servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
@@ -113,7 +136,7 @@ def fetch_shooter(filepath,filehash):
                     '{2}\n'.format(boundary, *d) for d in items]
                    + ['--' + boundary + '--'])
 
-    if config['dry-run']:
+    if dry_run:
         print 'DRY-RUN: Were trying to fetch subtitles for {0}.'.format(filepath)
         return None
         

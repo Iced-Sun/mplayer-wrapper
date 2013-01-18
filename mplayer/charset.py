@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-12 18:39:57 by subi>
+# Time-stamp: <2013-01-18 19:11:46 by subi>
 
 from __future__ import unicode_literals
 
@@ -55,7 +55,7 @@ class Charset(object):
                       )
 
     @staticmethod
-    def generate_regex(enc, with_ascii=True):
+    def re(enc, with_ascii=True):
         if with_ascii and not enc == 'ascii':
             return b'|'.join(Charset.codec['ascii'] + Charset.codec[enc])
         else:
@@ -76,8 +76,8 @@ def interprete_stream(stream, enc):
     @pattern: the list of code points
     Return: (#ASCII, #ENC, #OTHER)
     '''
-    interpretable = filter_in(stream, Charset.generate_regex(enc))
-    standalone_ascii = filter_out(interpretable, Charset.generate_regex(enc,False))
+    interpretable = filter_in(stream, Charset.re(enc))
+    standalone_ascii = filter_out(interpretable, Charset.re(enc,False))
     
     return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(stream)-len(interpretable)
 
@@ -90,7 +90,7 @@ def guess_locale(stream, naive=True):
     # prepare the sample
     # filter out ASCII as much as possible by the heuristic that a \x00-\x7F
     # byte that following \x80-\xFF is not ASCII.
-    pattern = b'(?<![\x80-\xFE])' + Charset.generate_regex('ascii')
+    pattern = b'(?<![\x80-\xFE])' + Charset.re('ascii')
     sample = filter_out(stream, pattern)
     
     if len(sample)>2048:

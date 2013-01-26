@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-18 23:42:03 by subi>
+# Time-stamp: <2013-01-26 10:27:48 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -447,7 +447,7 @@ class MPlayer(object):
         args = [ self.__context['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
         if config['debug']:
             logging.debug('Executing:\n  {0}'.format(' '.join(args)))
-        return b'\n'.join([l for l in subprocess.check_output(args).splitlines() if l.startswith(b'ID_')]).decode(config['enc'])
+        return b'\n'.join([l for l in subprocess.check_output(args).splitlines() if l.startswith(b'ID_')]).decode(config['enc'],'ignore')
     
     def play(self, media=None):
         args = [ self.__context['path'] ] + self.__global_args

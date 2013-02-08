@@ -2,32 +2,27 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-19 00:01:38 by subi>
+# Time-stamp: <2013-02-08 20:26:47 by subi>
 
 from __future__ import unicode_literals
 
 # interface
-class RemoteSubtitleHandler(object):
-    def fetch_and_save(self, save_dir=None):
-        self.__subs = fetch_shooter(self.__path,self.__shash,self.__dry_run)
-        if self.__subs:
-            force_utf8_and_filter_duplicates(self.__subs)
-            save_to_disk(self.__subs, self.__path, save_dir)
-
-        return [s['path'] for s in self.__subs]
+def fetch_subtitle(media_path, media_shash, save_dir=None, dry_run=False):
+    saved_path = []
     
-    def __init__(self, media_path, media_shash, dry_run):
-        self.__path = media_path
-        self.__shash = media_shash
-        self.__dry_run = dry_run
-        self.__subs = []
-
-
+    subs = fetch_shooter(media_path, media_shash, dry_run)
+    if subs:
+        force_utf8_and_filter_duplicates(subs)
+        save_to_disk(subs, media_path, save_dir)
+        saved_path = [s['path'] for s in subs]
+        
+    return saved_path
+    
 # implementation
 from mplayer.charset import guess_locale_and_convert
 import os,hashlib,logging,time,io
 
-def save_to_disk(subtitles, filepath, save_dir=None):
+def save_to_disk(subtitles, filepath, save_dir):
     prefix,_ = os.path.splitext(filepath)
     if save_dir:
         prefix = os.path.join(save_dir, os.path.basename(prefix))
@@ -112,7 +107,7 @@ def parse_shooter_package(fileobj):
     logging.debug('{0} subtitle(s) fetched.'.format(len(subtitles)))
     return subtitles
 
-def fetch_shooter(filepath,filehash,dry_run=False):
+def fetch_shooter(filepath,filehash,dry_run):
     import httplib
     schemas = ['http', 'https'] if hasattr(httplib, 'HTTPS') else ['http']
     servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
@@ -138,7 +133,7 @@ def fetch_shooter(filepath,filehash,dry_run=False):
                    + ['--' + boundary + '--'])
 
     if dry_run:
-        print 'DRY-RUN: Were trying to fetch subtitles for {0}.'.format(filepath)
+        logging.info('Dummy:\n Fetching subtitles for {0}.'.format(filepath))
         return None
         
 #        app.send('osd_show_text "正在查询字幕..." 5000')

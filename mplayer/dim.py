@@ -2,10 +2,32 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-14 09:07:59 by subi>
+# Time-stamp: <2013-02-09 15:32:28 by subi>
 
 from aux import which
 
+# interface
+def apply_geometry_fix(w,h,DAR_advice,DAR_force=None):
+    if DAR_force:
+        DAR = DAR_force
+    else:
+        DAR = normalize_DAR(w,h,DAR_advice)
+    PAR = DAR / Fraction(w,h)
+    args = []
+
+    if not DAR == Fraction(w,h):
+        args.append('-aspect {0.numerator}:{0.denominator}'.format(DAR))
+
+        # work-around for stretched osd/subtitle after applying -aspect
+        if w >= 1280:
+            h = int(w / DAR)
+        else:
+            w = int(h * DAR)
+        args.append('-vf-pre scale={0}:{1}'.format(w,h))
+    
+    return DAR, PAR, args + expand_video(DAR)
+
+# implementation
 import subprocess
 from fractions import Fraction
 
@@ -225,23 +247,5 @@ def expand_video(source_aspect, target_aspect=None):
 
     return args
 
-def apply_geometry_fix(w,h,DAR_advice,DAR_force=None):
-    if DAR_force:
-        DAR = DAR_force
-    else:
-        DAR = normalize_DAR(w,h,DAR_advice)
-
-    args = []
-    if not DAR == Fraction(w,h):
-        # work-around for stretched osd/subtitle after applying -aspect
-        if w >= 1280:
-            h = int(w / DAR)
-        else:
-            w = int(h * DAR)
-        args.append('-aspect {0.numerator}:{0.denominator}'.format(DAR))
-        args.append('-vf-pre scale={0}:{1}'.format(w,h))
-
-    return args + expand_video(DAR)
-        
 if __name__ == '__main__':
     print(apply_geometry_fix(1152, 768, Fraction(16,9)))

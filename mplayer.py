@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-26 10:27:48 by subi>
+# Time-stamp: <2013-02-09 15:36:22 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -117,6 +117,7 @@ class Player(Application):
             media.fetch_remote_subtitles_and_save(load_in_mplayer=True)
             
     def generate_playlist(self, lock):
+        from mplayer.aux import find_more_episodes
         time.sleep(1.5)
         with lock:
             self.playlist += find_more_episodes(self.args['file'][-1])
@@ -189,17 +190,21 @@ class Media(object):
             
         info = self.__info
         if raw['ID_VIDEO_ID']:
+            from mplayer.dim import apply_geometry_fix
             info['video'] = True
 
             # preparation
             w = int(raw['ID_VIDEO_WIDTH'][0])
             h = int(raw['ID_VIDEO_HEIGHT'][0])
-            DAR = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
+            DAR_advice = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
             DAR_force = MPlayer().get_cmdline_aspect()
 
-            for item in apply_geometry_fix(w,h,DAR,DAR_force):
+            # record info
+            info['width'], info['heigth'] = w, h
+            info['DAR'], info['PAR'], args = apply_geometry_fix(w,h,DAR_advice,DAR_force)
+            for item in args:
                 self.add_arg(item)
-
+                
             # subtitles
             self.parse_local_subtitles()
 
@@ -233,7 +238,6 @@ class Media(object):
                 self.add_arg('-unrarexec {0}'.format(unrar))
         
     def fetch_remote_subtitles_and_save(self, sub_savedir=None, load_in_mplayer=False):
-        from mplayer.sub import RemoteSubtitleHandler
         info = self.__info
 
         if not info['subtitle']:
@@ -247,8 +251,8 @@ class Media(object):
             # TODO: language?
             pass
         else:
-            # whatever
-            info['subtitle']['remote'] = RemoteSubtitleHandler(info['abspath'],info['shash'],config['dry-run']).fetch_and_save(sub_savedir)
+            from mplayer.sub import fetch_subtitle
+            info['subtitle']['remote'] = fetch_subtitle(info['abspath'], info['shash'], sub_savedir, config['dry-run'])
             if load_in_mplayer:
                 for s in info['subtitle']['remote']:
                     MPlayer().send('sub_load "{0}"'.format(s['path']))
@@ -282,14 +286,15 @@ class Media(object):
         if not config['debug']:
             return
         info = self.__info
-        log_items = ['  Fullpath:  {0}'.format(info['abspath']),
-                     '  Hash:      {0}'.format(info['shash'])]
+        log_items = ['Media info:',
+                     '  Fullpath:  {}'.format(info['abspath']),
+                     '  Hash:      {}'.format(info['shash'])]
         if info['video']:
-            log_items.append('  Dimension: {0} [PAR {1} DAR {2}]'
-                             .format('{0.width}x{0.height}'.format(info['storage']),
+            log_items.append('  Dimension: {}x{} [PAR {} DAR {}]'
+                             .format(info['width'], info['height'],
                                      '{0.numerator}:{0.denominator}'.format(info['PAR']),
                                      '{0.numerator}:{0.denominator}'.format(info['DAR'])))
-        logging.debug('\n'+'\n'.join(log_items))
+        logging.debug('\n'.join(log_items))
 
 class MPlayerContext(defaultdict):
     def __init__(self):
@@ -387,6 +392,8 @@ class MPlayer(object):
 
         self.__context = MPlayerContext()
 
+        self.__process = None
+        
     def pick_args(self, args):
         # parse args
         left_args = []
@@ -446,7 +453,7 @@ class MPlayer(object):
     def identify(self, args):
         args = [ self.__context['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
         if config['debug']:
-            logging.debug('Executing:\n  {0}'.format(' '.join(args)))
+            logging.debug('Identifying:\n{0}'.format(' '.join(args)))
         return b'\n'.join([l for l in subprocess.check_output(args).splitlines() if l.startswith(b'ID_')]).decode(config['enc'],'ignore')
     
     def play(self, media=None):
@@ -506,56 +513,6 @@ class MPlayer(object):
         logging.debug('Last timestamp: {0}'.format(self.last_timestamp))
         logging.debug('Last exit status: {0}'.format(self.last_exit_status))
         self.__process = None
-
-def find_more_episodes(filepath):
-    '''Try to find some following episodes/parts.
-    '''
-    def translate(s):
-        import locale
-        dic = dict(zip('零壹贰叁肆伍陆柒捌玖〇一二三四五六七八九','0123456789'*2))
-        return ''.join([dic.get(c,c) for c in s])
-    def split_by_int(s):
-        return [(int(x) if x.isdigit() else x) for x in re.split('(\d+)', translate(s)) if x != '']
-    def strip_to_int(s,prefix):
-        # strip the prefix
-        if prefix and s.startswith(prefix):
-            _,_,s = s.partition(prefix)
-        # extract the first int
-        val = split_by_int(s)[0]
-        return val if isinstance(val,int) else -1
-
-    if not os.path.exists(filepath):
-        return []
-
-    pdir, basename = os.path.split(os.path.abspath(filepath))
-    _, ext = os.path.splitext(basename)
-    # basic candidate filtering
-    # 1. extention
-    files = [f for f in os.listdir(pdir) if f.endswith(ext)]
-    # 2. remove previous episodes
-    files.sort(key=split_by_int)
-    del files[0:files.index(basename)]
-
-    # not necessary to go further if no candidates
-    if len(files) == 1:
-        return []
-
-    # find the common prefix
-    i_break = 0
-    for i in range(min(len(files[0]),len(files[1]))):
-        if not files[0][i] == files[1][i]:
-           i_break = i
-           break
-    prefix = files[0][0:i_break]
-
-    # generate the list
-    results = []
-    for i,f in enumerate(files[1:]):
-        if strip_to_int(f,prefix) - strip_to_int(files[i],prefix) == 1:
-            results.append(os.path.join(pdir,f))
-        else:
-            break
-    return results
 
 if __name__ == '__main__':
     if sys.hexversion < 0x02070000:

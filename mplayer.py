@@ -1,8 +1,8 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-02-09 15:36:22 by subi>
+# Time-stamp: <2013-02-09 16:58:33 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -13,7 +13,7 @@
 #    i)   resume last played position
 #    ii)  remember last settings (volume/hue/contrast etc.)
 #    iii) dedicated dir for subtitles
-#    iv)   sub_delay info from shooter
+#    iv)  sub_delay info from shooter
 # * remember last volume/hue/contrast for continuous playing (don't need data
 #   persistance)
 # * shooter sometimes return a false subtitle with the same time length. find a
@@ -296,89 +296,6 @@ class Media(object):
                                      '{0.numerator}:{0.denominator}'.format(info['DAR'])))
         logging.debug('\n'.join(log_items))
 
-class MPlayerContext(defaultdict):
-    def __init__(self):
-        super(MPlayerContext,self).__init__(bool)
-        
-        for p in ['/opt/bin/mplayer','/usr/local/bin/mplayer','/usr/bin/mplayer']:
-            if which(p):
-                self['path'] = p
-                break
-
-        if self['path']:
-            self.__init_context()
-
-    def __update_context(self):
-        options = subprocess.Popen([self['path'], '-list-options'], stdout=subprocess.PIPE).communicate()[0].splitlines()
-        if options[-1].startswith('MPlayer2'):
-            self['mplayer2'] = True
-            option_end = -3
-        else:
-            option_end = -4
-
-        self['option'] = defaultdict(int)
-        for opt in options[3:option_end]:
-            opt = opt.split()
-            name = opt[0].split(':') # don't care sub-option
-            if self['option'][name[0]]:
-                continue
-            self['option'][name[0]] = (2 if len(name)==2 or opt[1]!='Flag' else 1)
-            
-        # handle vf* af*:
-        # mplayer reports option name as vf*, which is a family of options.
-        del self['option']['af*']
-        del self['option']['vf*']
-        for extra in ['af','af-adv','af-add','af-pre','af-del','vf','vf-add','vf-pre','vf-del']:
-            self['option'][extra] = 2
-        for extra in ['af-clr','vf-clr']:
-            self['option'][extra] = 1
-
-        # ASS facility
-        self['ass'] = True
-        if not self['option']['ass']:
-            self['ass'] = False
-        else:
-            libass_path = None
-            for l in subprocess.check_output(['ldd',self['path']]).splitlines():
-                if 'libass' in l:
-                    libass_path = l.split()[2]
-            if not libass_path:
-                self['ass'] = False
-            else:
-                if not 'libfontconfig' in subprocess.check_output(['ldd',libass_path]):
-                    self['ass'] = False
-
-    def __init_context(self):
-        with open(self['path'],'rb') as f:
-            self['hash'] = hashlib.md5(f.read()).hexdigest()
-
-        cache_dir = os.path.expanduser('~/.cache/mplayer-wrapper')
-        cache_file = os.path.join(cache_dir, 'info')
-        
-        loaded_from_cache = False
-        if os.path.exists(cache_file):
-            with open(cache_file,'rb') as f:
-                try:
-                    js = json.load(f)
-                    if js['hash'] == self['hash']:
-                        self['ass'] = js['ass']
-                        self['mplayer2'] = js['mplayer2']
-                        self['option'] = defaultdict(int,js['option'])
-
-                        loaded_from_cache = True
-                except ValueError:
-                    pass
-
-        # rebuild cache if there no one or /usr/bin/mplayer changes
-        if not loaded_from_cache:
-            self.__update_context()
-            
-            # save to disk
-            if not os.path.exists(cache_dir):
-                os.mkdir(cache_dir,0700)
-            with open(cache_file,'wb') as f:
-                json.dump(self, f)
-
 @singleton
 class MPlayer(object):
     last_timestamp = 0.0
@@ -390,6 +307,7 @@ class MPlayer(object):
         self.__global_args = []
         self.__supplement_args = self.__fifo.args
 
+        from mplayer.mplayer import MPlayerContext
         self.__context = MPlayerContext()
 
         self.__process = None

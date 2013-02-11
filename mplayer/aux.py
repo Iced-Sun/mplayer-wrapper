@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-02-09 17:21:00 by subi>
+# Time-stamp: <2013-02-12 01:37:43 by subi>
 
 from __future__ import unicode_literals
 
@@ -29,7 +29,7 @@ def fsdecode(stream):
     import sys
     if sys.hexversion < 0x03000000:
         if isinstance(stream, str):
-            stream = stream.decode(sys.getfilesystemencoding())
+            stream = stream.decode(sys.getfilesystemencoding(),'ignore')
     else:
         if isinstance(stream, bytes):
             stream = os.fsdecode(stream)

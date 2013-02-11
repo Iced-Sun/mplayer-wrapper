@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-02-09 16:58:33 by subi>
+# Time-stamp: <2013-02-12 01:37:28 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -25,7 +25,7 @@
 
 from __future__ import unicode_literals
 
-from mplayer.aux import singleton,which
+from mplayer.aux import singleton,which,fsdecode
 
 import logging
 import os,sys
@@ -372,7 +372,7 @@ class MPlayer(object):
         args = [ self.__context['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
         if config['debug']:
             logging.debug('Identifying:\n{0}'.format(' '.join(args)))
-        return b'\n'.join([l for l in subprocess.check_output(args).splitlines() if l.startswith(b'ID_')]).decode(config['enc'],'ignore')
+        return '\n'.join([l for l in fsdecode(subprocess.check_output(args)).splitlines() if l.startswith('ID_')])
     
     def play(self, media=None):
         args = [ self.__context['path'] ] + self.__global_args
@@ -437,9 +437,8 @@ if __name__ == '__main__':
         print 'Please run the script with python>=2.7'
     else:
         config = defaultdict(bool)
-        config['enc'] = sys.getfilesystemencoding()
-        
-        args = [x.decode(config['enc']) for x in sys.argv]
+
+        args = [fsdecode(x) for x in sys.argv]
         name = os.path.basename(args.pop(0))
         if 'mplayer' in name:
             app = Player

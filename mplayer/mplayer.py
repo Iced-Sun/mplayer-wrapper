@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-02-09 16:57:04 by subi>
+# Time-stamp: <2013-02-10 02:48:39 by subi>
 
 from __future__ import unicode_literals
 
-from aux import which
+from aux import which, fsdecode
 
 import os, subprocess, hashlib, json
 from collections import defaultdict
@@ -24,7 +24,8 @@ class MPlayerContext(defaultdict):
             self.__init_context()
 
     def __update_context(self):
-        options = subprocess.Popen([self['path'], '-list-options'], stdout=subprocess.PIPE).communicate()[0].splitlines()
+        options = fsdecode(subprocess.Popen([self['path'], '-list-options'], stdout=subprocess.PIPE).communicate()[0]).splitlines()
+        print(options)
         if options[-1].startswith('MPlayer2'):
             self['mplayer2'] = True
             option_end = -3
@@ -54,13 +55,13 @@ class MPlayerContext(defaultdict):
             self['ass'] = False
         else:
             libass_path = None
-            for l in subprocess.check_output(['ldd',self['path']]).splitlines():
+            for l in fsdecode(subprocess.check_output(['ldd',self['path']])).splitlines():
                 if 'libass' in l:
                     libass_path = l.split()[2]
             if not libass_path:
                 self['ass'] = False
             else:
-                if not 'libfontconfig' in subprocess.check_output(['ldd',libass_path]):
+                if not 'libfontconfig' in fsdecode(subprocess.check_output(['ldd',libass_path])):
                     self['ass'] = False
 
     def __init_context(self):
@@ -73,7 +74,7 @@ class MPlayerContext(defaultdict):
 
         loaded_from_cache = False
         try:
-            f = open(cache_file,'rb')
+            f = open(cache_file,'r')
         except IOError:
             pass
         else:
@@ -97,7 +98,7 @@ class MPlayerContext(defaultdict):
             # save to disk
             if not os.path.exists(cache_dir):
                 os.mkdir(cache_dir,0o700)
-            with open(cache_file,'wb') as f:
+            with open(cache_file,'w') as f:
                 json.dump(self, f)
 
 if __name__ == '__main__':

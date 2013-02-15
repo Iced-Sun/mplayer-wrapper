@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-01-18 23:54:17 by subi>
+# Time-stamp: <2013-02-15 09:37:10 by subi>
 
 from __future__ import unicode_literals
 
@@ -111,7 +111,7 @@ def guess_locale(stream, naive=True):
 
     # true when having less than 0.5% (~10) bytes cannot be interpreted
     threshold = int(len(sample) * .005)
-    if interprete_stream(sample, 'utf_8')[2] < threshold:
+    if interprete_stream(sample, 'utf_8')[2] <= threshold:
         return 'utf_8','und'
     elif naive:
         # In the particular context of subtitles, traditional Chinese is more
@@ -120,7 +120,7 @@ def guess_locale(stream, naive=True):
         # The priority is GB2312>BIG5>GBK when the bytes can interpreted by at
         # least two of them. If this is not you want, please set naive=False.
         for enc,lang in [('gb2312','chs'), ('big5','cht'), ('gbk','cht')]:
-            if interprete_stream(sample, enc)[2] < threshold:
+            if interprete_stream(sample, enc)[2] <= threshold:
                return enc,lang 
     else:
         # GBK and BIG5 share most code points and hence it's almost impossible

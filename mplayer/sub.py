@@ -2,15 +2,17 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-02-09 17:01:57 by subi>
+# Time-stamp: <2013-04-10 00:36:40 by subi>
 
 from __future__ import unicode_literals
 
+from global_setting import *
+
 # interface
-def fetch_subtitle(media_path, media_shash, save_dir=None, dry_run=False):
+def fetch_subtitle(media_path, media_shash, save_dir=None):
     saved_path = []
     
-    subs = fetch_shooter(media_path, media_shash, dry_run)
+    subs = fetch_shooter(media_path, media_shash)
     if subs:
         force_utf8_and_filter_duplicates(subs)
         save_to_disk(subs, media_path, save_dir)
@@ -107,7 +109,7 @@ def parse_shooter_package(fileobj):
     logging.debug('{0} subtitle(s) fetched.'.format(len(subtitles)))
     return subtitles
 
-def fetch_shooter(filepath,filehash,dry_run):
+def fetch_shooter(filepath,filehash):
     import httplib
     schemas = ['http', 'https'] if hasattr(httplib, 'HTTPS') else ['http']
     servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
@@ -132,8 +134,8 @@ def fetch_shooter(filepath,filehash,dry_run):
                     '{2}\n'.format(boundary, *d) for d in items]
                    + ['--' + boundary + '--'])
 
-    if dry_run:
-        logging.info('Dummy:\n Fetching subtitles for {0}.'.format(filepath))
+    if config['dry-run']:
+        logging.info('fetch_shooter() ---> Dry-running:\n Fetching subtitles for {0}.'.format(filepath))
         return None
         
 #        app.send('osd_show_text "正在查询字幕..." 5000')

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-02-15 09:37:10 by subi>
+# Time-stamp: <2013-04-10 00:46:24 by subi>
 
 from __future__ import unicode_literals
 
@@ -16,6 +16,7 @@ def guess_locale_and_convert(stream):
         
     if not enc in ['utf_8', 'ascii']:
         stream = stream.decode(enc,'ignore').encode('utf_8')
+
     return enc,lang,stream
 
 # implementation

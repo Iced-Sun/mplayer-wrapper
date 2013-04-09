@@ -1,3 +1,15 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+# Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
+# Time-stamp: <2013-04-10 00:05:40 by subi>
+
+from __future__ import unicode_literals
+import os,hashlib
+
+from global_setting import *
+from sub import fetch_subtitle
+
 class Media(object):
     def is_video(self):
         return self.__info['video']
@@ -77,8 +89,7 @@ class Media(object):
             # TODO: language?
             pass
         else:
-            from mplayer.sub import fetch_subtitle
-            info['subtitle']['remote'] = fetch_subtitle(info['abspath'], info['shash'], sub_savedir, config['dry-run'])
+            info['subtitle']['remote'] = fetch_subtitle(info['abspath'], info['shash'], sub_savedir)
             if load_in_mplayer:
                 for s in info['subtitle']['remote']:
                     MPlayer().send('sub_load "{0}"'.format(s['path']))
@@ -112,7 +123,7 @@ class Media(object):
         if not config['debug']:
             return
         info = self.__info
-        log_items = ['Media info:',
+        log_items = ['Media().__del__() ---> Media info:',
                      '  Fullpath:  {}'.format(info['abspath']),
                      '  Hash:      {}'.format(info['shash'])]
         if info['video']:

@@ -2,25 +2,24 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-02-15 15:38:35 by subi>
+# Time-stamp: <2013-04-09 23:48:43 by subi>
 
 from __future__ import unicode_literals
 
 from aux import which, fsdecode
+from global_setting import *
 
 import os, subprocess, hashlib, json
 from collections import defaultdict
 
-# http://www.python.org/dev/peps/pep-0318/
-def singleton(cls):
-    instances = {}
-    def getinstance():
-        if cls not in instances:
-            instances[cls] = cls()
-        return instances[cls]
-    return getinstance
-
 class MPlayerContext(defaultdict):
+    '''Meta information on MPlayer itself. Also include the identify() method.
+    '''
+    def identify(self, args):
+        args = [ self['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
+        logging.debug('MPlayerContext().identify() ---> Identifying:\n{0}'.format(' '.join(args)))
+        return '\n'.join([l for l in fsdecode(subprocess.check_output(args)).splitlines() if l.startswith('ID_')])
+    
     def __init__(self):
         super(MPlayerContext,self).__init__(bool)
         
@@ -31,6 +30,43 @@ class MPlayerContext(defaultdict):
 
         if self['path']:
             self.__init_context()
+
+    def __init_context(self):
+        with open(self['path'],'rb') as f:
+            self['hash'] = hashlib.md5(f.read()).hexdigest()
+
+        cache_home = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
+        cache_dir = os.path.join(cache_home, 'mplayer-wrapper')
+        cache_file = os.path.join(cache_dir, 'info')
+
+        loaded_from_cache = False
+        try:
+            f = open(cache_file,'r')
+        except IOError:
+            pass
+        else:
+            with f:
+                try:
+                    js = json.load(f)
+                except ValueError:
+                    pass
+                else:
+                    if js['hash'] == self['hash']:
+                        self['ass'] = js['ass']
+                        self['mplayer2'] = js['mplayer2']
+                        self['option'] = defaultdict(int,js['option'])
+
+                        loaded_from_cache = True
+
+        # rebuild cache if there no one or /usr/bin/mplayer changes
+        if not loaded_from_cache:
+            self.__update_context()
+            
+            # save to disk
+            if not os.path.exists(cache_dir):
+                os.mkdir(cache_dir,0o700)
+            with open(cache_file,'w') as f:
+                json.dump(self, f)
 
     def __update_context(self):
         options = fsdecode(subprocess.Popen([self['path'], '-list-options'], stdout=subprocess.PIPE).communicate()[0]).splitlines()
@@ -73,43 +109,6 @@ class MPlayerContext(defaultdict):
                 if not 'libfontconfig' in fsdecode(subprocess.check_output(['ldd',libass_path])):
                     self['ass'] = False
 
-    def __init_context(self):
-        with open(self['path'],'rb') as f:
-            self['hash'] = hashlib.md5(f.read()).hexdigest()
-
-        cache_home = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
-        cache_dir = os.path.join(cache_home, 'mplayer-wrapper')
-        cache_file = os.path.join(cache_dir, 'info')
-
-        loaded_from_cache = False
-        try:
-            f = open(cache_file,'r')
-        except IOError:
-            pass
-        else:
-            with f:
-                try:
-                    js = json.load(f)
-                except ValueError:
-                    pass
-                else:
-                    if js['hash'] == self['hash']:
-                        self['ass'] = js['ass']
-                        self['mplayer2'] = js['mplayer2']
-                        self['option'] = defaultdict(int,js['option'])
-
-                        loaded_from_cache = True
-
-        # rebuild cache if there no one or /usr/bin/mplayer changes
-        if not loaded_from_cache:
-            self.__update_context()
-            
-            # save to disk
-            if not os.path.exists(cache_dir):
-                os.mkdir(cache_dir,0o700)
-            with open(cache_file,'w') as f:
-                json.dump(self, f)
-
 class MPlayerFifo(object):
     '''MPlayerFifo will maintain a FIFO for IPC with mplayer.
     '''
@@ -143,7 +142,6 @@ class MPlayerFifo(object):
         except OSError as e:
             logging.info(e)
 
-@singleton
 class MPlayer(object):
     last_timestamp = 0.0
     last_exit_status = None
@@ -214,12 +212,6 @@ class MPlayer(object):
         if self.__process != None:
             self.__fifo.send(cmd)
         
-    def identify(self, args):
-        args = [ self.__context['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
-        if config['debug']:
-            logging.debug('Identifying:\n{0}'.format(' '.join(args)))
-        return '\n'.join([l for l in fsdecode(subprocess.check_output(args)).splitlines() if l.startswith('ID_')])
-    
     def play(self, media=None):
         args = [ self.__context['path'] ] + self.__global_args
         if media:
@@ -283,3 +275,5 @@ if __name__ == '__main__':
     cntxt = MPlayerContext()
     print(cntxt)
     MPlayer(sys.argv)
+#else:
+#    mplayer = MPlayer()

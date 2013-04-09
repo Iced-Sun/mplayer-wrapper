@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-02-12 01:37:28 by subi>
+# Time-stamp: <2013-02-15 15:32:03 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -25,7 +25,7 @@
 
 from __future__ import unicode_literals
 
-from mplayer.aux import singleton,which,fsdecode
+from mplayer.aux import which,fsdecode
 
 import logging
 import os,sys
@@ -68,8 +68,7 @@ class Player(Application):
         super(Player, self).__init__(args)
         self.args = defaultdict(list)
 
-        self.mplayer = MPlayer()
-        self.mplayer.pick_args(args)
+        self.mplayer = MPlayer(args)
 
         # parse the left args
         while args:
@@ -139,39 +138,6 @@ class Fetcher(Application):
             Media(f).fetch_remote_subtitles_and_save(sub_savedir=self.savedir)
             
 ### Main modules
-class MPlayerFifo(object):
-    '''MPlayerFifo will maintain a FIFO for IPC with mplayer.
-    '''
-    def send(self, s):
-        if self.args:
-            logging.debug('Sending message "{0}" to {1}...'.format(s, self.__path))
-            with open(self.__path,'w') as f:
-                f.write(s+'\n')
-        else:
-            logging.info('"{0}" cannot be sent to the non-existing {1}.'.format(s, self.__path))
-    
-    def __init__(self):
-        # don't use __del__() to release resource because MPlayerFifo tends to
-        # be used in a daemon thread and hence may result in circular reference.
-        import atexit
-
-        self.args = []
-        xdg = os.environ['XDG_RUNTIME_DIR']
-        if xdg:
-            self.__path = os.path.join(xdg, 'mplayer.fifo')
-        else:
-            import tempfile
-            tmpdir = tempfile.mkdtemp()
-            atexit.register(lambda d: os.rmdir(d), tmpdir)
-            self.__path = os.path.join(tmpdir, 'mplayer.fifo')
-
-        try:
-            os.mkfifo(self.__path)
-            atexit.register(lambda f: os.unlink(f), self.__path)
-            self.args = '-input file={0}'.format(self.__path).split()
-        except OSError as e:
-            logging.info(e)
-
 class Media(object):
     def is_video(self):
         return self.__info['video']
@@ -295,142 +261,6 @@ class Media(object):
                                      '{0.numerator}:{0.denominator}'.format(info['PAR']),
                                      '{0.numerator}:{0.denominator}'.format(info['DAR'])))
         logging.debug('\n'.join(log_items))
-
-@singleton
-class MPlayer(object):
-    last_timestamp = 0.0
-    last_exit_status = None
-    
-    def __init__(self, args=[]):
-        self.__fifo = MPlayerFifo()
-
-        self.__global_args = []
-        self.__supplement_args = self.__fifo.args
-
-        from mplayer.mplayer import MPlayerContext
-        self.__context = MPlayerContext()
-
-        self.__process = None
-        
-    def pick_args(self, args):
-        # parse args
-        left_args = []
-        cmdline_ass = ''
-        while args:
-            s = args.pop(0)
-            if s == '--':
-                left_args += args
-                args = []
-            elif s.startswith('-'):
-                flag = self.__context['option'][s.partition('-')[2]]
-                if flag == 0:
-                    left_args.append(s)
-                elif flag == 1:
-                    if s == '-ass' or s == '-noass':
-                        cmdline_ass = s
-                    else:
-                        self.__global_args.append(s)
-                elif flag == 2:
-                    self.__global_args.append(s)
-                    if args:
-                        self.__global_args.append(args.pop(0))
-            else:
-                left_args.append(s)
-        args[:] = left_args
-
-        if self.__context['ass']:
-            if cmdline_ass:
-                self.__supplement_args.append(cmdline_ass)
-            else:
-                self.__supplement_args.append('-ass')
-        else:
-            self.__supplement_args.append('-noass')
-
-    def __del__(self):
-        logging.debug('Global args:  {0}\n'
-                      '  Supplement: {1}'.format(self.__global_args, self.__supplement_args))
-        
-    def get_cmdline_aspect(self):
-        DAR = None
-        if '-aspect' in self.__global_args:
-            s = self.__global_args[self.__global_args.index('-aspect')+1]
-            if ':' in s:
-                x,y = s.split(':')
-                DAR = Fraction(int(x),int(y))
-            else:
-                DAR = Fraction(s)
-        elif 'dsize' in self.__global_args:
-            # TODO
-            pass
-        return DAR
-        
-    def send(self, cmd):
-        if self.__process != None:
-            self.__fifo.send(cmd)
-        
-    def identify(self, args):
-        args = [ self.__context['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
-        if config['debug']:
-            logging.debug('Identifying:\n{0}'.format(' '.join(args)))
-        return '\n'.join([l for l in fsdecode(subprocess.check_output(args)).splitlines() if l.startswith('ID_')])
-    
-    def play(self, media=None):
-        args = [ self.__context['path'] ] + self.__global_args
-        if media:
-            args += media.mplayer_args()
-            if media.is_video():
-                args += self.__supplement_args
-        logging.debug('\n'+' '.join(args))
-        if not config['dry-run']:
-            self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
-            self.__tee()
-
-    def __tee(self):
-        def flush_first_line(fileobj, lines):
-            fileobj.write(b''.join(lines.pop(0)))
-            fileobj.flush()
-            lines.append([])
-
-        f = sys.stdout
-        p = self.__process
-        
-        # cache 5 lines in case of unexpected outputs
-        lines = [[] for i in range(5)]
-        while True:
-            c = p.stdout.read(1)
-            if not c:
-                break
-            lines[4].append(c)
-
-            # carriage return / linefeed
-            if c == b'\n':
-                flush_first_line(f,lines)
-            elif c == b'\r':
-                d = p.stdout.read(1)
-                if d == b'\n':
-                    lines[4].append(b'\n')
-                    flush_first_line(f,lines)
-                else:
-                    flush_first_line(f,lines)
-                    lines[4].append(d)
-            else:
-                pass
-
-        # save info and flush rest outputs
-        for l in (b''.join(ll) for ll in lines):
-            if l.startswith((b'A:',b'V:')):
-                try:
-                    self.last_timestamp = float(l[2:9])
-                except ValueError:
-                    pass
-            if l.startswith(b'Exiting...'):
-                self.last_exit_status = l[12:len(l)-2]
-            f.write(l)
-        f.flush()
-
-        logging.debug('Last timestamp: {0}'.format(self.last_timestamp))
-        logging.debug('Last exit status: {0}'.format(self.last_exit_status))
-        self.__process = None
 
 if __name__ == '__main__':
     if sys.hexversion < 0x02070000:

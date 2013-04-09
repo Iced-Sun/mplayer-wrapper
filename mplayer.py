@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-09 23:50:10 by subi>
+# Time-stamp: <2013-04-09 23:54:08 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -30,22 +30,14 @@ from mplayer.aux import which,fsdecode
 from mplayer.mplayer import MPlayer,MPlayerContext
 
 import os,sys
-import subprocess, threading, time
-import hashlib
-import re
-import io
-import json
-#from collections import defaultdict
 
 ### Application classes
 class Application(object):
-    '''The application class will:
+    '''The application class should:
     1. parse command line arguments
     2. provide run() method to accomplish its role
     '''
     def __init__(self, args):
-        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
-
         if '--debug' in args:
             logging.root.setLevel(logging.DEBUG)
             args.remove('--debug')
@@ -64,6 +56,22 @@ class Identifier(Application):
     def run(self):
         print(MPlayerContext().identify(self.args))
         
+class Fetcher(Application):
+    def __init__(self, args):
+        self.savedir = None
+        self.files = []
+        
+        super(Fetcher,self).__init__(args)
+        for arg in args:
+            if arg.startswith('--savedir'):
+                self.savedir = arg.split('=')[1]
+            else:
+                self.files += [arg]
+
+    def run(self):
+        for f in self.files:
+            Media(f).fetch_remote_subtitles_and_save(sub_savedir=self.savedir)
+            
 class Player(Application):
     def __init__(self, args):
         super(Player, self).__init__(args)
@@ -121,22 +129,6 @@ class Player(Application):
         time.sleep(1.5)
         with lock:
             self.playlist += find_more_episodes(self.args['file'][-1])
-            
-class Fetcher(Application):
-    def __init__(self, args):
-        self.savedir = None
-        self.files = []
-        
-        super(Fetcher,self).__init__(args)
-        for arg in args:
-            if arg.startswith('--savedir'):
-                self.savedir = arg.split('=')[1]
-            else:
-                self.files += [arg]
-
-    def run(self):
-        for f in self.files:
-            Media(f).fetch_remote_subtitles_and_save(sub_savedir=self.savedir)
             
 if __name__ == '__main__':
     if sys.hexversion < 0x02070000:

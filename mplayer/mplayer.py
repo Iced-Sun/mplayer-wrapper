@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 16:30:57 by subi>
+# Time-stamp: <2013-04-10 17:35:53 by subi>
 
 from __future__ import unicode_literals
 
-from aux import which, fsdecode
+from aux import which, fsencode, fsdecode
 from global_setting import *
 
 import sys,os,subprocess,hashlib,json
@@ -119,7 +119,7 @@ class MPlayerFifo(object):
         if self.args:
             logging.debug('Sending message "{0}" to {1}...'.format(s, self.__path))
             with open(self.__path,'w') as f:
-                f.write(s+'\n')
+                f.write(fsencode(s+'\n'))
         else:
             logging.info('"{0}" cannot be sent to the non-existing {1}.'.format(s, self.__path))
     
@@ -194,10 +194,9 @@ class MPlayer(object):
         else:
             self.__supplement_args.append('-noass')
 
-    def __del__(self):
         logging.debug('Global args:  {0}\n'
                       '  Supplement: {1}'.format(self.__global_args, self.__supplement_args))
-        
+
     def __set_cmdline_aspect(self):
         DAR = None
         if '-aspect' in self.__global_args:
@@ -280,5 +279,3 @@ if __name__ == '__main__':
     cntxt = MPlayerContext()
     print(cntxt)
     MPlayer(sys.argv)
-#else:
-#    mplayer = MPlayer()

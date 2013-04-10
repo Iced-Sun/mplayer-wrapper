@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-02-15 15:26:44 by subi>
+# Time-stamp: <2013-04-10 17:28:04 by subi>
 
 from __future__ import unicode_literals
 
@@ -15,6 +15,16 @@ def which(prog):
         if os.access(fullpath, os.X_OK):
           return fullpath
     return None
+
+def fsencode(stream):
+    import sys
+    if sys.hexversion < 0x03000000:
+        if isinstance(stream, unicode):
+            stream = stream.encode(sys.getfilesystemencoding(),'ignore')
+    else:
+        if isinstance(stream, str):
+            stream = os.fsencode(stream)
+    return stream
 
 def fsdecode(stream):
     import sys

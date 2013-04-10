@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-09 23:48:43 by subi>
+# Time-stamp: <2013-04-10 10:21:45 by subi>
 
 from __future__ import unicode_literals
 
@@ -75,6 +75,8 @@ class MPlayerContext(defaultdict):
             self['mplayer2'] = True
             option_end = -3
         else:
+            # access the item to enforce it when saving
+            self['mplayer2'] = False
             option_end = -4
 
         self['option'] = defaultdict(int)

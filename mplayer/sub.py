@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 00:36:40 by subi>
+# Time-stamp: <2013-04-10 17:25:46 by subi>
 
 from __future__ import unicode_literals
 
@@ -144,32 +144,37 @@ def fetch_shooter(filepath,filehash):
     # fetch
     import urllib2
     for i, t in enumerate(tries):
+        logging.debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(tries)+1))
+        time.sleep(t)
+
+        url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(schemas), random.choice(servers))
+
+        # shooter.cn uses UTF-8.
+        req = urllib2.Request(url.encode('utf_8'))
+        for h in header:
+            req.add_header(h[0].encode('utf_8'), h[1].encode('utf_8'))
+        req.add_data(data.encode('utf_8'))
+
+        logging.debug('Connecting server {} with the submission:\n'
+                      '\n'
+                      '{}\n'
+                      '{}\n'.format(url,
+                                     '\n'.join(['{0}:{1}'.format(*h) for h in header]),
+                                     data))
+
+        # todo: with context manager
         try:
-            logging.debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(tries)+1))
-            time.sleep(t)
-
-            url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(schemas), random.choice(servers))
-
-            # shooter.cn uses UTF-8.
-            req = urllib2.Request(url.encode('utf_8'))
-            for h in header:
-                req.add_header(h[0].encode('utf_8'), h[1].encode('utf_8'))
-            req.add_data(data.encode('utf_8'))
-
-            logging.debug('Connecting server {0} with the submission:\n'
-                          '\n{1}\n'
-                          '{2}\n'.format(url,
-                                         '\n'.join(['{0}:{1}'.format(*h) for h in header]),
-                                         data))
-
-            # todo: with context manager
             response = urllib2.urlopen(req)
+        except urllib2.URLError as e:
+            logging.debug(e)
+        except BadStatusLine as e:
+            logging.debug(e)
+        else:
             fetched_subtitles = parse_shooter_package(response)
-            response.close()
-
             if fetched_subtitles:
                 break
-        except urllib2.URLError, e:
-            logging.debug(e)
+        finally:
+            response.close()
+
     return fetched_subtitles
 

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 13:30:59 by subi>
+# Time-stamp: <2013-04-10 14:37:49 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -142,15 +142,16 @@ if __name__ == '__main__':
         name = os.path.basename(args.pop(0))
 
         if 'mplayer' in name:
-            if 'fetch' == args[0]:
-                args.pop(0)
-                app = Fetcher
-            elif 'identify' == args[0]:
-                args.pop(0)
-                app = Identifier
-            elif 'play' == args[0]:
-                args.pop(0)
-                app = Player
+            if len(args) > 0:
+                if 'fetch' == args[0]:
+                    args.pop(0)
+                    app = Fetcher
+                elif 'identify' == args[0]:
+                    args.pop(0)
+                    app = Identifier
+                elif 'play' == args[0]:
+                    args.pop(0)
+                    app = Player
             else:
                 app = Player
         elif 'mfetch' in name:

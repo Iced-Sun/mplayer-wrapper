@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 12:12:33 by subi>
+# Time-stamp: <2013-04-10 13:00:33 by subi>
 
 from __future__ import unicode_literals
 
@@ -10,17 +10,16 @@ from aux import which, fsdecode
 from global_setting import *
 
 import os, subprocess, hashlib, json
-from collections import defaultdict
 
 class MPlayerContext(defaultdict):
     '''Meta information on MPlayer itself. Also include the identify() method.
     '''
     def identify(self, args):
         args = [ self['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
-        logging.debug('MPlayerContext().identify() ---> Identifying:\n{0}'.format(' '.join(args)))
+        logging.debug('Entering MPlayerContext.identify() ---> Calling subprocess:\n{0}'.format(' '.join(args)))
         return '\n'.join([l for l in fsdecode(subprocess.check_output(args)).splitlines() if l.startswith('ID_')])
     
-    def __init__(self):
+    def __init__(self, need_context=False):
         super(MPlayerContext,self).__init__(bool)
         
         for p in ['/opt/bin/mplayer','/usr/local/bin/mplayer','/usr/bin/mplayer']:
@@ -28,10 +27,11 @@ class MPlayerContext(defaultdict):
                 self['path'] = p
                 break
 
-        if self['path']:
+        if self['path'] and need_context:
             self.__init_context()
 
     def __init_context(self):
+        logging.debug('Entering MPlayerContext.__init_context()')
         with open(self['path'],'rb') as f:
             self['hash'] = hashlib.md5(f.read()).hexdigest()
 
@@ -69,8 +69,9 @@ class MPlayerContext(defaultdict):
                 json.dump(self, f)
 
     def __update_context(self):
+        logging.debug('Entering MPlayerContext.__update_context()')
         options = fsdecode(subprocess.Popen([self['path'], '-list-options'], stdout=subprocess.PIPE).communicate()[0]).splitlines()
-        print(options)
+
         if options[-1].startswith('MPlayer2'):
             self['mplayer2'] = True
             option_end = -3
@@ -154,6 +155,7 @@ class MPlayer(object):
         self.__process = None
 
         self.__init_args(args)
+        self.__set_cmdline_aspect()
         
     def __init_args(self, args):
         self.__global_args = []
@@ -196,7 +198,7 @@ class MPlayer(object):
         logging.debug('Global args:  {0}\n'
                       '  Supplement: {1}'.format(self.__global_args, self.__supplement_args))
         
-    def get_cmdline_aspect(self):
+    def __set_cmdline_aspect(self):
         DAR = None
         if '-aspect' in self.__global_args:
             s = self.__global_args[self.__global_args.index('-aspect')+1]

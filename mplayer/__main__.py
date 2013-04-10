@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 12:29:23 by subi>
+# Time-stamp: <2013-04-10 12:48:36 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -52,6 +52,7 @@ class Identifier(Application):
         self.args = args
 
     def run(self):
+        from mplayer import MPlayerContext
         print(MPlayerContext().identify(self.args))
         
 class Fetcher(Application):
@@ -67,10 +68,14 @@ class Fetcher(Application):
                 self.files += [arg]
 
     def run(self):
+        from media import Media
         for f in self.files:
             Media(f).fetch_remote_subtitles_and_save(sub_savedir=self.savedir)
             
 class Player(Application):
+    from mplayer import MPlayer
+    from media import Media
+    
     def __init__(self, args):
         super(Player, self).__init__(args)
         self.args = defaultdict(list)
@@ -124,7 +129,8 @@ class Player(Application):
             media.fetch_remote_subtitles_and_save(load_in_mplayer=True)
             
     def generate_playlist(self, lock):
-        from mplayer.aux import find_more_episodes
+        from aux import find_more_episodes
+        import time
         time.sleep(1.5)
         with lock:
             self.playlist += find_more_episodes(self.args['file'][-1])
@@ -135,15 +141,22 @@ if __name__ == '__main__':
     else:
         args = [fsdecode(x) for x in sys.argv]
         name = os.path.basename(args.pop(0))
+
         if 'mplayer' in name:
-            from mplayer import MPlayer
-            from media import Media
-            app = Player
+            if 'fetch' == args[0]:
+                args.pop(0)
+                app = Fetcher
+            elif 'identify' == args[0]:
+                args.pop(0)
+                app = Identifier
+            elif 'play' == args[0]:
+                args.pop(0)
+                app = Player
+            else:
+                app = Player
         elif 'mfetch' in name:
-            from media import Media
             app = Fetcher
         elif 'midentify' in name:
-            from mplayer import MPlayerContext
             app = Identifier
         else:
             app = Application

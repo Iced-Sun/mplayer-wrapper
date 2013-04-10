@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 13:44:56 by subi>
+# Time-stamp: <2013-04-10 17:20:11 by subi>
 
 from __future__ import unicode_literals
 import os,hashlib
@@ -94,8 +94,8 @@ class Media(object):
             info['subtitle']['remote'] = fetch_subtitle(info['abspath'], info['shash'], sub_savedir)
             if load_in_mplayer:
                 for s in info['subtitle']['remote']:
-                    MPlayer().send('sub_load "{0}"'.format(s['path']))
-                MPlayer().send('sub_file 0')
+                    config['mplayer'].send('sub_load "{0}"'.format(s))
+                config['mplayer'].send('sub_file 0')
             
     def add_arg(self,arg,force=False):
         never_overwritten = ['-vf-pre','-vf-add']

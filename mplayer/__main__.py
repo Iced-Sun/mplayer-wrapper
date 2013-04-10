@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 16:25:34 by subi>
+# Time-stamp: <2013-04-10 17:35:03 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -78,7 +78,7 @@ class Player(Application):
         self.args = defaultdict(list)
 
         from mplayer import MPlayer
-        self.mplayer = MPlayer(args)
+        config['mplayer'] = MPlayer(args)
 
         # parse the left args
         while args:
@@ -97,7 +97,7 @@ class Player(Application):
 
     def run(self):
         if not self.playlist:
-            self.mplayer.play()
+            config['mplayer'].play()
         else:
             import threading
             # Use a separate thread to reduce the noticeable lag when finding
@@ -117,8 +117,8 @@ class Player(Application):
                 watch_thread.daemon = True
                 watch_thread.start()
 
-                self.mplayer.play(m)
-                if self.mplayer.last_exit_status == 'Quit':
+                config['mplayer'].play(m)
+                if config['mplayer'].last_exit_status == 'Quit':
                     break
 
                 playlist_thread.join()
@@ -160,4 +160,3 @@ if __name__ == '__main__':
             app = Application
 
         app(args).run()
-        

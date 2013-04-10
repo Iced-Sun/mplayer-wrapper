@@ -2,13 +2,14 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 00:05:40 by subi>
+# Time-stamp: <2013-04-10 13:44:56 by subi>
 
 from __future__ import unicode_literals
 import os,hashlib
 
 from global_setting import *
 from sub import fetch_subtitle
+from mplayer import MPlayerContext
 
 class Media(object):
     def is_video(self):
@@ -22,23 +23,23 @@ class Media(object):
         self.__raw_info['mplayer'] = defaultdict(list)
         raw = self.__raw_info['mplayer']
 
-        for l in MPlayer().identify(self.args).splitlines():
+        for l in MPlayerContext().identify(self.args).splitlines():
             k,_,v = l.partition('=')
             raw[k].append(v)
             
         info = self.__info
         if raw['ID_VIDEO_ID']:
-            from mplayer.dim import apply_geometry_fix
+            from dim import apply_geometry_fix
             info['video'] = True
 
             # preparation
             w = int(raw['ID_VIDEO_WIDTH'][0])
             h = int(raw['ID_VIDEO_HEIGHT'][0])
             DAR_advice = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
-            DAR_force = MPlayer().get_cmdline_aspect()
+            DAR_force = config['cmdline_aspect']
 
             # record info
-            info['width'], info['heigth'] = w, h
+            info['width'], info['height'] = w, h
             info['DAR'], info['PAR'], args = apply_geometry_fix(w,h,DAR_advice,DAR_force)
             for item in args:
                 self.add_arg(item)
@@ -60,6 +61,7 @@ class Media(object):
         if raw['ID_FILE_SUB_ID']:
             info['subtitle']['external'] = raw['ID_FILE_SUB_FILENAME']
             logging.debug('Converting the external subtitles to UTF-8...')
+            from charset import guess_locale_and_convert
             for subfile in raw['ID_FILE_SUB_FILENAME']:
                 # open in binary mode because we don't know the encoding
                 with open(subfile,'r+b') as f:
@@ -123,7 +125,7 @@ class Media(object):
         if not config['debug']:
             return
         info = self.__info
-        log_items = ['Media().__del__() ---> Media info:',
+        log_items = ['Media.__del__() ---> Media info:',
                      '  Fullpath:  {}'.format(info['abspath']),
                      '  Hash:      {}'.format(info['shash'])]
         if info['video']:

@@ -2,14 +2,14 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 13:00:33 by subi>
+# Time-stamp: <2013-04-10 13:46:34 by subi>
 
 from __future__ import unicode_literals
 
 from aux import which, fsdecode
 from global_setting import *
 
-import os, subprocess, hashlib, json
+import sys,os,subprocess,hashlib,json
 
 class MPlayerContext(defaultdict):
     '''Meta information on MPlayer itself. Also include the identify() method.
@@ -210,8 +210,9 @@ class MPlayer(object):
         elif 'dsize' in self.__global_args:
             # TODO
             pass
-        return DAR
-        
+
+        config['cmdline_aspect'] = DAR
+            
     def send(self, cmd):
         if self.__process != None:
             self.__fifo.send(cmd)

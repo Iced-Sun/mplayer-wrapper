@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 12:48:36 by subi>
+# Time-stamp: <2013-04-10 13:30:59 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -73,13 +73,11 @@ class Fetcher(Application):
             Media(f).fetch_remote_subtitles_and_save(sub_savedir=self.savedir)
             
 class Player(Application):
-    from mplayer import MPlayer
-    from media import Media
-    
     def __init__(self, args):
         super(Player, self).__init__(args)
         self.args = defaultdict(list)
 
+        from mplayer import MPlayer
         self.mplayer = MPlayer(args)
 
         # parse the left args
@@ -109,6 +107,7 @@ class Player(Application):
             playlist_thread.daemon = True
             playlist_thread.start()
             
+            from media import Media
             while self.playlist:
                 with playlist_lock:
                     f = self.playlist.pop(0)

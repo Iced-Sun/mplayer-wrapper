@@ -2,14 +2,18 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 00:02:07 by subi>
+# Time-stamp: <2013-04-11 01:20:54 by subi>
 
 from __future__ import unicode_literals
 
 from aux import which, fsencode, fsdecode, log_debug
 from global_setting import *
 
-import sys,os,subprocess,hashlib,json
+import subprocess,hashlib,json
+try:
+    from subprocess import DEVNULL
+except ImportError:
+    DEVNULL = open(os.devnull, 'wb')
 from collections import defaultdict
 
 class MPlayerContext(defaultdict):
@@ -47,10 +51,9 @@ class MPlayerContext(defaultdict):
         with open(self['path'],'rb') as f:
             self['hash'] = hashlib.md5(f.read()).hexdigest()
 
-        loaded_from_cache = False
-        # load context from cache if /usr/bin/mplayer didn't change
         with open(cache_file,'r') as f:
             cached_context = defaultdict(bool, json.load(f))
+            # load context from cache if /usr/bin/mplayer isn't modified.
             if cached_context['hash'] == self['hash']:
                 self['ass'] = cached_context['ass']
                 self['mplayer2'] = cached_context['mplayer2']
@@ -63,9 +66,9 @@ class MPlayerContext(defaultdict):
             self['mplayer2'] = True
             option_end = -3
         else:
-            # access the item to enforce it when saving
             option_end = -4
 
+        # collect supported options
         self['option'] = defaultdict(int)
         for opt in options[3:option_end]:
             opt = opt.split()
@@ -74,8 +77,8 @@ class MPlayerContext(defaultdict):
                 continue
             self['option'][name[0]] = (2 if len(name)==2 or opt[1]!='Flag' else 1)
             
-        # handle vf* af*:
-        # mplayer reports option name as vf*, which is a family of options.
+        # handle vf*/af*: mplayer reports option name as vf*/af*, which is a
+        # family of options.
         del self['option']['af*']
         del self['option']['vf*']
         for extra in ['af','af-adv','af-add','af-pre','af-del','vf','vf-add','vf-pre','vf-del']:
@@ -83,7 +86,7 @@ class MPlayerContext(defaultdict):
         for extra in ['af-clr','vf-clr']:
             self['option'][extra] = 1
 
-        # ASS facility
+        # it's awful to test if ass is supported.
         self['ass'] = True
         if not self['option']['ass']:
             self['ass'] = False
@@ -210,7 +213,8 @@ class MPlayer(object):
     def identify(self, args):
         args = [ self.__context['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
         log_debug('Entering MPlayerContext.identify() <call subprocess>\n  {}'.format(' '.join(args)))
-        return '\n'.join([l for l in fsdecode(subprocess.check_output(args)).splitlines() if l.startswith('ID_')])
+        output = subprocess.Popen(args,stdout=subprocess.PIPE,stderr=DEVNULL).communicate()[0]
+        return '\n'.join([l for l in fsdecode(output).splitlines() if l.startswith('ID_')])
     
     def play(self, media=None):
         args = [ self.__context['path'] ] + self.__cmdline_args

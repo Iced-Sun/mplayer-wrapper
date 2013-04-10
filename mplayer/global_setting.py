@@ -1,4 +1,4 @@
-import os
+import sys,os
 
 class config(object):
     DEBUG=False

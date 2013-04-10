@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 00:01:18 by subi>
+# Time-stamp: <2013-04-10 12:29:23 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -24,13 +24,10 @@
 # * use ffprobe for better(?) metainfo detection?
 
 from __future__ import unicode_literals
-
-from mplayer.global_setting import *
-from mplayer.aux import which,fsdecode
-from mplayer.mplayer import MPlayer,MPlayerContext
-from mplayer.media import Media
-
 import os,sys
+
+from global_setting import *
+from aux import fsdecode
 
 ### Application classes
 class Application(object):
@@ -99,6 +96,7 @@ class Player(Application):
         if not self.playlist:
             self.mplayer.play()
         else:
+            import threading
             # Use a separate thread to reduce the noticeable lag when finding
             # episodes in a big directory.
             playlist_lock = threading.Lock()
@@ -130,7 +128,7 @@ class Player(Application):
         time.sleep(1.5)
         with lock:
             self.playlist += find_more_episodes(self.args['file'][-1])
-            
+
 if __name__ == '__main__':
     if sys.hexversion < 0x02070000:
         print 'Please run the script with python>=2.7'
@@ -138,10 +136,14 @@ if __name__ == '__main__':
         args = [fsdecode(x) for x in sys.argv]
         name = os.path.basename(args.pop(0))
         if 'mplayer' in name:
+            from mplayer import MPlayer
+            from media import Media
             app = Player
         elif 'mfetch' in name:
+            from media import Media
             app = Fetcher
         elif 'midentify' in name:
+            from mplayer import MPlayerContext
             app = Identifier
         else:
             app = Application

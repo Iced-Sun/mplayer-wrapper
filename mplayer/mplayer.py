@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 10:21:45 by subi>
+# Time-stamp: <2013-04-10 10:25:48 by subi>
 
 from __future__ import unicode_literals
 
@@ -35,6 +35,9 @@ class MPlayerContext(defaultdict):
         with open(self['path'],'rb') as f:
             self['hash'] = hashlib.md5(f.read()).hexdigest()
 
+        with open(sys.argv[0],'rb') as f:
+            self['script-hash'] = hashlib.md5(f.read()).hexdigest() 
+            
         cache_home = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
         cache_dir = os.path.join(cache_home, 'mplayer-wrapper')
         cache_file = os.path.join(cache_dir, 'info')
@@ -51,7 +54,7 @@ class MPlayerContext(defaultdict):
                 except ValueError:
                     pass
                 else:
-                    if js['hash'] == self['hash']:
+                    if js.get('script-hash', '') == self['script-hash'] and js.get('hash','') == self['hash']: 
                         self['ass'] = js['ass']
                         self['mplayer2'] = js['mplayer2']
                         self['option'] = defaultdict(int,js['option'])

@@ -2,11 +2,13 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 17:28:04 by subi>
+# Time-stamp: <2013-04-10 23:34:39 by subi>
 
 from __future__ import unicode_literals
+from __future__ import print_function
+import os,sys
 
-import os
+from global_setting import config
 
 def which(prog):
     paths = [''] if os.path.isabs(prog) else os.environ['PATH'].split(os.pathsep)
@@ -16,8 +18,14 @@ def which(prog):
           return fullpath
     return None
 
+def log_debug(s):
+    if config.DEBUG:
+        print(fsencode(s),file=sys.stderr)
+        
+def log_info(s):
+    print(fsencode(s),file=sys.stderr)
+    
 def fsencode(stream):
-    import sys
     if sys.hexversion < 0x03000000:
         if isinstance(stream, unicode):
             stream = stream.encode(sys.getfilesystemencoding(),'ignore')
@@ -27,7 +35,6 @@ def fsencode(stream):
     return stream
 
 def fsdecode(stream):
-    import sys
     if sys.hexversion < 0x03000000:
         if isinstance(stream, str):
             stream = stream.decode(sys.getfilesystemencoding(),'ignore')

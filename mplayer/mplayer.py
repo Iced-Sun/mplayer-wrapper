@@ -2,24 +2,18 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 17:35:53 by subi>
+# Time-stamp: <2013-04-11 00:02:07 by subi>
 
 from __future__ import unicode_literals
 
-from aux import which, fsencode, fsdecode
+from aux import which, fsencode, fsdecode, log_debug
 from global_setting import *
 
 import sys,os,subprocess,hashlib,json
+from collections import defaultdict
 
 class MPlayerContext(defaultdict):
-    '''Meta information on MPlayer itself. Also include the identify() method.
-    '''
-    def identify(self, args):
-        args = [ self['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
-        logging.debug('Entering MPlayerContext.identify() ---> Calling subprocess:\n{0}'.format(' '.join(args)))
-        return '\n'.join([l for l in fsdecode(subprocess.check_output(args)).splitlines() if l.startswith('ID_')])
-    
-    def __init__(self, need_context=False):
+    def __init__(self, minimal=False):
         super(MPlayerContext,self).__init__(bool)
         
         for p in ['/opt/bin/mplayer','/usr/local/bin/mplayer','/usr/bin/mplayer']:
@@ -27,49 +21,42 @@ class MPlayerContext(defaultdict):
                 self['path'] = p
                 break
 
-        if self['path'] and need_context:
+        if self['path'] and not minimal:
             self.__init_context()
 
     def __init_context(self):
-        logging.debug('Entering MPlayerContext.__init_context()')
+        cache_file = os.path.join(config.get_cache_dir(), 'info')
+
+        try:
+            self.__load_context(cache_file)
+        except StandardError as e:
+            log_debug('Load context from {} failed because: \n  {}'.format(cache_file, e))
+
+        if not self['option']:
+            self.__rebuild_context()
+            
+            try:
+                if not os.path.exists(config.get_cache_dir()):
+                    os.mkdir(config.get_cache_dir(),0o700)
+                with open(cache_file,'w') as f:
+                    json.dump(self, f)
+            except StandardError as e:
+                log_debug('Save context to {} failed because:\n  {}'.format(cache_file, e))
+
+    def __load_context(self, cache_file):
         with open(self['path'],'rb') as f:
             self['hash'] = hashlib.md5(f.read()).hexdigest()
 
-        cache_home = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
-        cache_dir = os.path.join(cache_home, 'mplayer-wrapper')
-        cache_file = os.path.join(cache_dir, 'info')
-
         loaded_from_cache = False
-        try:
-            f = open(cache_file,'r')
-        except IOError:
-            pass
-        else:
-            with f:
-                try:
-                    js = json.load(f)
-                except ValueError:
-                    pass
-                else:
-                    if js.get('hash','') == self['hash']: 
-                        self['ass'] = js['ass']
-                        self['mplayer2'] = js['mplayer2']
-                        self['option'] = defaultdict(int,js['option'])
+        # load context from cache if /usr/bin/mplayer didn't change
+        with open(cache_file,'r') as f:
+            cached_context = defaultdict(bool, json.load(f))
+            if cached_context['hash'] == self['hash']:
+                self['ass'] = cached_context['ass']
+                self['mplayer2'] = cached_context['mplayer2']
+                self['option'] = defaultdict(int, cached_context['option'])
 
-                        loaded_from_cache = True
-
-        # rebuild cache if there no one or /usr/bin/mplayer changes
-        if not loaded_from_cache:
-            self.__update_context()
-            
-            # save to disk
-            if not os.path.exists(cache_dir):
-                os.mkdir(cache_dir,0o700)
-            with open(cache_file,'w') as f:
-                json.dump(self, f)
-
-    def __update_context(self):
-        logging.debug('Entering MPlayerContext.__update_context()')
+    def __rebuild_context(self):
         options = fsdecode(subprocess.Popen([self['path'], '-list-options'], stdout=subprocess.PIPE).communicate()[0]).splitlines()
 
         if options[-1].startswith('MPlayer2'):
@@ -77,7 +64,6 @@ class MPlayerContext(defaultdict):
             option_end = -3
         else:
             # access the item to enforce it when saving
-            self['mplayer2'] = False
             option_end = -4
 
         self['option'] = defaultdict(int)
@@ -149,17 +135,25 @@ class MPlayer(object):
     last_timestamp = 0.0
     last_exit_status = None
     
-    def __init__(self, args=[]):
-        self.__fifo = MPlayerFifo()
-        self.__context = MPlayerContext(need_context=True)
-        self.__process = None
+    def __init__(self, args=[], minimal=False):
+        self.__context = MPlayerContext(minimal)
+        if not minimal:
+            self.__fifo = MPlayerFifo()
+            self.__process = None
 
-        self.__init_args(args)
-        self.__set_cmdline_aspect()
-        
+            self.__init_args(args)
+            self.__set_cmdline_aspect()
+
+    def __del__(self):
+        # only the non-minimal has hash
+        if self.__context['hash']:
+            log_debug('Default args:\n'
+                      '  Command line: {}\n'
+                      '  Extra:        {}'.format(self.__cmdline_args, self.__extra_args))
+
     def __init_args(self, args):
-        self.__global_args = []
-        self.__supplement_args = self.__fifo.args
+        self.__cmdline_args = []
+        self.__extra_args = self.__fifo.args
 
         # parse args
         left_args = []
@@ -177,47 +171,49 @@ class MPlayer(object):
                     if s == '-ass' or s == '-noass':
                         cmdline_ass = s
                     else:
-                        self.__global_args.append(s)
+                        self.__cmdline_args.append(s)
                 elif flag == 2:
-                    self.__global_args.append(s)
+                    self.__cmdline_args.append(s)
                     if args:
-                        self.__global_args.append(args.pop(0))
+                        self.__cmdline_args.append(args.pop(0))
             else:
                 left_args.append(s)
         args[:] = left_args
 
         if self.__context['ass']:
             if cmdline_ass:
-                self.__supplement_args.append(cmdline_ass)
+                self.__extra_args.append(cmdline_ass)
             else:
-                self.__supplement_args.append('-ass')
+                self.__extra_args.append('-ass')
         else:
-            self.__supplement_args.append('-noass')
-
-        logging.debug('Global args:  {0}\n'
-                      '  Supplement: {1}'.format(self.__global_args, self.__supplement_args))
+            self.__extra_args.append('-noass')
 
     def __set_cmdline_aspect(self):
         DAR = None
-        if '-aspect' in self.__global_args:
-            s = self.__global_args[self.__global_args.index('-aspect')+1]
+        if '-aspect' in self.__cmdline_args:
+            s = self.__cmdline_args[self.__cmdline_args.index('-aspect')+1]
             if ':' in s:
                 x,y = s.split(':')
                 DAR = Fraction(int(x),int(y))
             else:
                 DAR = Fraction(s)
-        elif 'dsize' in self.__global_args:
+        elif 'dsize' in self.__cmdline_args:
             # TODO
             pass
-
-        config['cmdline_aspect'] = DAR
+        log_debug('CMDLINE_ASPECT is set to {}'.format(DAR))
+        config.CMDLINE_ASPECT = DAR
             
     def send(self, cmd):
         if self.__process != None:
             self.__fifo.send(cmd)
         
+    def identify(self, args):
+        args = [ self.__context['path'] ] + '-vo null -ao null -frames 0 -identify'.split() + args
+        log_debug('Entering MPlayerContext.identify() <call subprocess>\n  {}'.format(' '.join(args)))
+        return '\n'.join([l for l in fsdecode(subprocess.check_output(args)).splitlines() if l.startswith('ID_')])
+    
     def play(self, media=None):
-        args = [ self.__context['path'] ] + self.__global_args
+        args = [ self.__context['path'] ] + self.__cmdline_args
         if media:
             args += media.mplayer_args()
             if media.is_video():

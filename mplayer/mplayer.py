@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 13:46:34 by subi>
+# Time-stamp: <2013-04-10 16:30:57 by subi>
 
 from __future__ import unicode_literals
 
@@ -151,7 +151,7 @@ class MPlayer(object):
     
     def __init__(self, args=[]):
         self.__fifo = MPlayerFifo()
-        self.__context = MPlayerContext()
+        self.__context = MPlayerContext(need_context=True)
         self.__process = None
 
         self.__init_args(args)

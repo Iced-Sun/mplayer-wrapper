@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 19:19:10 by subi>
+# Time-stamp: <2013-04-11 22:49:28 by subi>
 
 from global_setting import config, singleton
 
@@ -58,7 +58,6 @@ class Player(Application):
         # handle the left arguments
         self.playlist = []
         invalid = []
-
         while args:
             s = args.pop(0)
             if s == '--':
@@ -69,8 +68,10 @@ class Player(Application):
             else:
                 self.playlist.append(s)
 
+        # save the last file for finding more episodes.
         self.__playlist_seed = self.playlist[-1]
-        
+
+        # notify about the invalid arguments.
         if invalid:
             from global_setting import log_info
             log_info('Unknown option(s) "' + ' '.join(invalid) + '" are ignored.')
@@ -85,18 +86,29 @@ class Player(Application):
         import threading
         # Use a separate thread to reduce the noticeable lag when finding
         # episodes in a big directory.
+        def generate_playlist(lock):
+            import time
+            time.sleep(1.5)
+            from aux import find_more_episodes
+            with lock:
+                self.playlist += find_more_episodes(self.__playlist_seed)
         playlist_lock = threading.Lock()
-        playlist_thread = threading.Thread(target=self.generate_playlist, args=(playlist_lock,))
+        playlist_thread = threading.Thread(target=generate_playlist, args=(playlist_lock,))
         playlist_thread.daemon = True
         playlist_thread.start()
-            
+
+        # Watchdog thread
+        def watch(media):
+            if media.is_video():
+                media.fetch_remote_subtitles_and_save(load_in_mplayer=True)
         from media import Media
         while self.playlist:
             with playlist_lock:
                 f = self.playlist.pop(0)
             m = Media(f)
+            # TODO: move m.prepare into mplayer.play(m)
             m.prepare_mplayer_args()
-            watch_thread = threading.Thread(target=self.watch, args=(m,))
+            watch_thread = threading.Thread(target=watch, args=(m,))
             watch_thread.daemon = True
             watch_thread.start()
 
@@ -106,14 +118,4 @@ class Player(Application):
 
             playlist_thread.join()
             
-    def watch(self, media):
-        if media.is_video():
-            media.fetch_remote_subtitles_and_save(load_in_mplayer=True)
             
-    def generate_playlist(self, lock):
-        import time
-        time.sleep(1.5)
-        from aux import find_more_episodes
-        with lock:
-            self.playlist += find_more_episodes(self.__playlist_seed)
-

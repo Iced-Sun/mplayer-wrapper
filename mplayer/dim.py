@@ -2,20 +2,25 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 13:44:41 by subi>
-
-from aux import which
+# Time-stamp: <2013-04-12 01:13:10 by subi>
 
 # interface
 def apply_geometry_fix(w,h,DAR_advice,DAR_force=None):
+    '''Adjust the movie DAR (display aspect ratio) automatically by advice (usually
+    come from video info) or force (usually come from command line) and expand the
+    movie.
+
+    Return generated arguments for mplayer.
+    '''
     if DAR_force:
         DAR = DAR_force
     else:
-        DAR = normalize_DAR(w,h,DAR_advice)
+        DAR = auto_adjust_DAR(w,h,DAR_advice)
     PAR = DAR / Fraction(w,h)
     args = []
 
-    if not DAR == Fraction(w,h):
+    # apply aspect fixes only if the aspect is REALLY changed.
+    if abs(DAR - Fraction(w,h)) > 0.01:
         args.append('-aspect {0.numerator}:{0.denominator}'.format(DAR))
 
         # work-around for stretched osd/subtitle after applying -aspect
@@ -30,6 +35,8 @@ def apply_geometry_fix(w,h,DAR_advice,DAR_force=None):
 # implementation
 import subprocess
 from fractions import Fraction
+
+from aux import which
 
 def check_screen_dim():
     '''Select the maximal available screen dimension.
@@ -47,7 +54,7 @@ def check_screen_dim():
                 dim = (w,h)
     return dim
 
-def normalize_DAR(w,h,DAR):
+def auto_adjust_DAR(w,h,DAR):
     '''Determine a reasonable display aspect ratio.
     
     References:
@@ -79,7 +86,6 @@ def normalize_DAR(w,h,DAR):
             # SDTV can be 4:3 or 16:9, blame the video ripper if we
             # took the wrong guess
             DAR = Fraction(4,3)
-
     return DAR
 
 def expand_video(source_aspect, target_aspect=None):

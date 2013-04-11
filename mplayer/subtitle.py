@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 23:54:28 by subi>
+# Time-stamp: <2013-04-12 00:00:16 by subi>
 
 from __future__ import unicode_literals
 
@@ -133,9 +133,6 @@ def fetch_shooter(filepath,filehash):
         log_info('fetch_shooter() ---> Dry-running:\n Fetching subtitles for {0}.'.format(filepath))
         return None
         
-#        app.send('osd_show_text "正在查询字幕..." 5000')
-#            app.send('osd_show_text "查询字幕失败." 3000')
-
     # fetch
     import urllib2
     for i, t in enumerate(tries):
@@ -151,16 +148,17 @@ def fetch_shooter(filepath,filehash):
         req.add_data(data.encode('utf_8'))
 
         log_debug('Connecting server {} with the submission:\n'
-                      '\n'
-                      '{}\n'
-                      '{}\n'.format(url,
-                                     '\n'.join(['{0}:{1}'.format(*h) for h in header]),
-                                     data))
+                  '\n'
+                  '{}\n'
+                  '{}\n'.format(url,
+                                '\n'.join(['{0}:{1}'.format(*h) for h in header]),
+                                data))
 
-        # todo: with context manager
         try:
+            singleton.mplayer.send('osd_show_text "正在查询字幕..." 5000')
             response = urllib2.urlopen(req)
         except StandardError as e:
+            singleton.mplayer.send('osd_show_text "查询字幕失败." 3000')
             log_debug(e)
         else:
             fetched_subtitles = parse_shooter_package(response)

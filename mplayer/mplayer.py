@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 18:15:47 by subi>
+# Time-stamp: <2013-04-11 23:00:05 by subi>
 
 from __future__ import unicode_literals
 
@@ -17,7 +17,7 @@ except ImportError:
 from collections import defaultdict
 
 class MPlayerContext(defaultdict):
-    def __init__(self, minimal=False):
+    def __init__(self):
         super(MPlayerContext,self).__init__(bool)
         
         for p in ['/opt/bin/mplayer','/usr/local/bin/mplayer','/usr/bin/mplayer']:
@@ -25,12 +25,12 @@ class MPlayerContext(defaultdict):
                 self['path'] = p
                 break
 
-        if self['path'] and not minimal:
-            self.__init_context()
+    def establish(self):
+        # no mplayer binary presents
+        if not self['path']:
+            return
 
-    def __init_context(self):
         cache_file = os.path.join(config.get_cache_dir(), 'info')
-
         try:
             self.__load_context(cache_file)
         except StandardError as e:
@@ -139,8 +139,9 @@ class MPlayer(object):
     last_exit_status = None
     
     def __init__(self, args=[], minimal=False):
-        self.__context = MPlayerContext(minimal)
+        self.__context = MPlayerContext()
         if not minimal:
+            self.__context.establish()
             self.__fifo = MPlayerFifo()
             self.__process = None
 

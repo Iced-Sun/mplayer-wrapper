@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 18:06:32 by subi>
+# Time-stamp: <2013-04-11 22:46:06 by subi>
 
 from __future__ import unicode_literals
 import hashlib
@@ -12,6 +12,9 @@ from global_setting import *
 from sub import fetch_subtitle
 
 class Media(object):
+    def play_with(self, player):
+        pass
+        
     def is_video(self):
         return self.__info['video']
     

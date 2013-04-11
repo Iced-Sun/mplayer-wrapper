@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 23:47:25 by subi>
+# Time-stamp: <2013-04-12 00:51:15 by subi>
 
 from global_setting import config, singleton
 
@@ -31,20 +31,19 @@ class Identifier(Application):
         
 class Fetcher(Application):
     def __init__(self, args):
+        super(Fetcher,self).__init__(args)
         self.savedir = None
         self.files = []
-        
-        super(Fetcher,self).__init__(args)
         for arg in args:
             if arg.startswith('--savedir'):
                 self.savedir = arg.split('=')[1]
             else:
-                self.files += [arg]
+                self.files.append(arg)
 
     def run(self):
         from media import Media
         for f in self.files:
-            Media(f).fetch_remote_subtitles(sub_savedir=self.savedir)
+            Media(f).fetch_remote_subtitles(self.savedir)
             
 class Player(Application):
     def __init__(self, args):
@@ -52,9 +51,8 @@ class Player(Application):
         super(Player, self).__init__(args)
 
         # the mplayer instance handles all its recognizable arguments.
-        from mplayer import MPlayer
-        singleton.mplayer = MPlayer(args)
-
+        singleton.create_mplayer(args)
+        
         # handle the left arguments
         self.playlist = []
         invalid = []
@@ -78,7 +76,7 @@ class Player(Application):
 
     def run(self):
         if not self.playlist:
-            singleton.mplayer.play()
+            singleton.get_mplayer().play()
         else:
             self.__run_playlist()
 
@@ -111,7 +109,8 @@ class Player(Application):
             watch_thread.start()
 
             m.play()
-            if singleton.mplayer.last_exit_status == 'Quit':
+            
+            if singleton.get_mplayer().last_exit_status == 'Quit':
                 break
 
             playlist_thread.join()

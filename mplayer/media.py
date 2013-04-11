@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 23:52:38 by subi>
+# Time-stamp: <2013-04-12 00:50:23 by subi>
 
 from __future__ import unicode_literals
 import hashlib
@@ -14,7 +14,7 @@ import subtitle
 class Media(object):
     def play(self):
         self.prepare_mplayer_args()
-        singleton.mplayer.play(self.args)
+        singleton.get_mplayer().play(self.args)
 
     def fetch_remote_subtitles(self, sub_savedir=None):
         info = self.__info
@@ -35,15 +35,15 @@ class Media(object):
         else:
             info['subtitle']['remote'] = subtitle.fetch_and_save_subtitle(info['abspath'], info['shash'], sub_savedir)
             for s in info['subtitle']['remote']:
-                singleton.mplayer.send('sub_load "{0}"'.format(s))
-            singleton.mplayer.send('sub_file 0')
+                singleton.get_mplayer().send('sub_load "{0}"'.format(s))
+            singleton.get_mplayer().send('sub_file 0')
         
     def prepare_mplayer_args(self):
         # collect media info by midentify
         self.__raw_info['mplayer'] = defaultdict(list)
         raw = self.__raw_info['mplayer']
 
-        for l in singleton.mplayer.identify(self.args).splitlines():
+        for l in singleton.get_mplayer().identify(self.args).splitlines():
             k,_,v = l.partition('=')
             raw[k].append(v)
             

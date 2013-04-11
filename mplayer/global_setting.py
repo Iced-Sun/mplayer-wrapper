@@ -24,7 +24,23 @@ class config(object):
 
 # singleton
 class singleton(object):
-    mplayer = None
+    __mplayer = None
+    __notifier = None
+
+    @staticmethod
+    def create_mplayer(args=None):
+        if singleton.__mplayer != None:
+            raise Exception('There is already a MPlayer instance.')
+        else:
+            import mplayer
+            singleton.__mplayer = mplayer.MPlayer(args)
+        return singleton.__mplayer
+            
+    @staticmethod
+    def get_mplayer():
+        if singleton.__mplayer == None:
+            raise Exception('There is no MPlayer instance.')
+        return singleton.__mplayer
 
 # logging function according to debug level
 def log_info(s):

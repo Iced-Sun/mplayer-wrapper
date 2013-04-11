@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 17:25:46 by subi>
+# Time-stamp: <2013-04-11 18:04:15 by subi>
 
 from __future__ import unicode_literals
 
-from global_setting import *
+from global_setting import config
+from aux import log_debug, log_info
 
 # interface
 def fetch_subtitle(media_path, media_shash, save_dir=None):
@@ -39,11 +40,11 @@ def save_to_disk(subtitles, filepath, save_dir):
 
         with open(path,'wb') as f:
             f.write(s['content'])
-            logging.info('Saved the subtitle as {0}'.format(path))
+            log_info('Saved the subtitle as {0}'.format(path))
             s['path'] = path
 
 def force_utf8_and_filter_duplicates(subtitles):
-    logging.debug('Trying to filter duplicated subtitles...')
+    log_debug('Trying to filter duplicated subtitles...')
 
     for s in subtitles:
         _,s['lang'],s['content'] = guess_locale_and_convert(s['content'])
@@ -59,12 +60,12 @@ def force_utf8_and_filter_duplicates(subtitles):
                 continue
             import difflib
             similarity = difflib.SequenceMatcher(None, sa['content'], sb['content']).real_quick_ratio()
-            logging.debug('Similarity is {0}.'.format(similarity))
+            log_debug('Similarity is {0}.'.format(similarity))
             if similarity > 0.9:
                 dup_tag[j] = True
     # TODO: reserve longer subtitles 
     subtitles = [subtitles[i] for i in range(len(subtitles)) if not dup_tag[i]]
-    logging.debug('{0} subtitle(s) reserved after duplicates filtering.'.format(len(subtitles)))
+    log_debug('{0} subtitle(s) reserved after duplicates filtering.'.format(len(subtitles)))
 
 def parse_shooter_package(fileobj):
     '''Parse shooter returned package of subtitles.
@@ -85,7 +86,7 @@ def parse_shooter_package(fileobj):
         description = f.read(desc_length).decode('utf_8')
         sub_delay = description.partition('=')[2] / 1000.0 if description and 'delay' in description else 0
         if description:
-            logging.debug('Subtitle description: {0}'.format(description))
+            log_debug('Subtitle description: {0}'.format(description))
 
         c = f.read(5)
         _,file_count = struct.unpack(b'!IB', c)
@@ -106,7 +107,7 @@ def parse_shooter_package(fileobj):
                               'delay': sub_delay,
                               'content': sub})
 
-    logging.debug('{0} subtitle(s) fetched.'.format(len(subtitles)))
+    log_debug('{0} subtitle(s) fetched.'.format(len(subtitles)))
     return subtitles
 
 def fetch_shooter(filepath,filehash):
@@ -134,8 +135,8 @@ def fetch_shooter(filepath,filehash):
                     '{2}\n'.format(boundary, *d) for d in items]
                    + ['--' + boundary + '--'])
 
-    if config['dry-run']:
-        logging.info('fetch_shooter() ---> Dry-running:\n Fetching subtitles for {0}.'.format(filepath))
+    if config.DRY_RUN:
+        log_info('fetch_shooter() ---> Dry-running:\n Fetching subtitles for {0}.'.format(filepath))
         return None
         
 #        app.send('osd_show_text "正在查询字幕..." 5000')
@@ -144,7 +145,7 @@ def fetch_shooter(filepath,filehash):
     # fetch
     import urllib2
     for i, t in enumerate(tries):
-        logging.debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(tries)+1))
+        log_debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(tries)+1))
         time.sleep(t)
 
         url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(schemas), random.choice(servers))
@@ -155,7 +156,7 @@ def fetch_shooter(filepath,filehash):
             req.add_header(h[0].encode('utf_8'), h[1].encode('utf_8'))
         req.add_data(data.encode('utf_8'))
 
-        logging.debug('Connecting server {} with the submission:\n'
+        log_debug('Connecting server {} with the submission:\n'
                       '\n'
                       '{}\n'
                       '{}\n'.format(url,
@@ -165,10 +166,8 @@ def fetch_shooter(filepath,filehash):
         # todo: with context manager
         try:
             response = urllib2.urlopen(req)
-        except urllib2.URLError as e:
-            logging.debug(e)
-        except BadStatusLine as e:
-            logging.debug(e)
+        except StandardError as e:
+            log_debug(e)
         else:
             fetched_subtitles = parse_shooter_package(response)
             if fetched_subtitles:

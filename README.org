@@ -32,13 +32,16 @@ Python版额外支持以下格式：
 *** 记录播放位置（Python版未实现）
 记录视频退出时的播放位置，从而在下次播放时从结束处继续播放（只有视频处于时间轴100秒之后并且在时间轴95%之前，才会在退出时记录）。
 ** 使用
-所有应用均支持--debug和--dry-run选项。请使用chmod +x赋予执行权限。
+所有应用均支持 =--debug= 和 =--dry-run= 选项。请使用 =chmod +x= 赋予执行权限。
 *** mplayer
 将mplayer.pyz另存为或软链接至mplayer或mplayer.pyz，支持所有的mplayer命令行参数（通过转发给真正的mplayer）。
+
+也可以用 =mplayer.pyz play= 进行访问。
+
 *** midentify
 将mplayer.pyz另存为或软链接至midentify。用于查看媒体信息。
 
-也可以用mplayer.pyz identify进行访问。
+也可以用 =mplayer.pyz identify= 进行访问。
 *** mfetch
 将mplayer.pyz另存为或软链接至mfetch。
 

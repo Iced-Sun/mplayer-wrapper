@@ -2,25 +2,42 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 22:46:06 by subi>
+# Time-stamp: <2013-04-11 23:52:38 by subi>
 
 from __future__ import unicode_literals
 import hashlib
 from collections import defaultdict
 
 from global_setting import *
-from sub import fetch_subtitle
+import subtitle
 
 class Media(object):
-    def play_with(self, player):
-        pass
-        
-    def is_video(self):
-        return self.__info['video']
-    
-    def mplayer_args(self):
-        return self.args
+    def play(self):
+        self.prepare_mplayer_args()
+        singleton.mplayer.play(self.args)
 
+    def fetch_remote_subtitles(self, sub_savedir=None):
+        info = self.__info
+        subtitle.fetch_and_save_subtitle(info['abspath'], info['shash'], sub_savedir)
+        
+    def fetch_if_no_local_subtitles(self, sub_savedir=None):
+        info = self.__info
+        if not info['subtitle']:
+            # if parse_local_subtitles() not done
+            info['subtitle'] = defaultdict(bool)
+
+        if info['subtitle']['embed'] and set(info['subtitle']['embed'])&{'chs','cht','chn','chi','zh','tw','hk'}:
+            # have Chinese text subtitles
+            pass
+        elif info['subtitle']['external']:
+            # TODO: language?
+            pass
+        else:
+            info['subtitle']['remote'] = subtitle.fetch_and_save_subtitle(info['abspath'], info['shash'], sub_savedir)
+            for s in info['subtitle']['remote']:
+                singleton.mplayer.send('sub_load "{0}"'.format(s))
+            singleton.mplayer.send('sub_file 0')
+        
     def prepare_mplayer_args(self):
         # collect media info by midentify
         self.__raw_info['mplayer'] = defaultdict(list)
@@ -49,6 +66,12 @@ class Media(object):
                 
             # subtitles
             self.parse_local_subtitles()
+
+            # append arguments for video
+            self.args += config.VIDEO_EXTRA_ARGS
+
+        # append global arguments from command line
+        self.args += config.CMDLINE_ARGS
 
     def parse_local_subtitles(self):
         info = self.__info
@@ -80,26 +103,6 @@ class Media(object):
             if unrar:
                 self.add_arg('-unrarexec {0}'.format(unrar))
         
-    def fetch_remote_subtitles_and_save(self, sub_savedir=None, load_in_mplayer=False):
-        info = self.__info
-
-        if not info['subtitle']:
-            # if parse_local_subtitles() not done
-            info['subtitle'] = defaultdict(bool)
-
-        if info['subtitle']['embed'] and set(info['subtitle']['embed'])&{'chs','cht','chn','chi','zh','tw','hk'}:
-            # have Chinese text subtitles
-            pass
-        elif info['subtitle']['external']:
-            # TODO: language?
-            pass
-        else:
-            info['subtitle']['remote'] = fetch_subtitle(info['abspath'], info['shash'], sub_savedir)
-            if load_in_mplayer:
-                for s in info['subtitle']['remote']:
-                    config['mplayer'].send('sub_load "{0}"'.format(s))
-                config['mplayer'].send('sub_file 0')
-            
     def add_arg(self,arg,force=False):
         never_overwritten = ['-vf-pre','-vf-add']
         arg = arg.split()

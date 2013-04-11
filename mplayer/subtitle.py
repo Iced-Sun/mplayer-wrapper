@@ -2,23 +2,18 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 18:07:31 by subi>
+# Time-stamp: <2013-04-11 23:54:28 by subi>
 
 from __future__ import unicode_literals
 
-from global_setting import config
+from global_setting import *
 
 # interface
-def fetch_subtitle(media_path, media_shash, save_dir=None):
-    saved_path = []
-    
-    subs = fetch_shooter(media_path, media_shash)
-    if subs:
-        force_utf8_and_filter_duplicates(subs)
-        save_to_disk(subs, media_path, save_dir)
-        saved_path = [s['path'] for s in subs]
-        
-    return saved_path
+def fetch_and_save_subtitle(path, shash, savedir=None):
+    subs = fetch_shooter(path, shash)
+    force_utf8_and_filter_duplicates(subs)
+    save_to_disk(subs, path, savedir)
+    return [s['path'] for s in subs]
     
 # implementation
 from charset import guess_locale_and_convert
@@ -169,10 +164,9 @@ def fetch_shooter(filepath,filehash):
             log_debug(e)
         else:
             fetched_subtitles = parse_shooter_package(response)
+            response.close()
             if fetched_subtitles:
                 break
-        finally:
-            response.close()
 
     return fetched_subtitles
 

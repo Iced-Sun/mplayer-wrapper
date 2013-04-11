@@ -10,6 +10,8 @@ class config(object):
     DRY_RUN=False
 
     CMDLINE_ASPECT=None
+    CMDLINE_ARGS=[]
+    VIDEO_EXTRA_ARGS=[]
     
     CACHE_DIR=None
 

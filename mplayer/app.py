@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 22:49:28 by subi>
+# Time-stamp: <2013-04-11 23:47:25 by subi>
 
 from global_setting import config, singleton
 
@@ -44,7 +44,7 @@ class Fetcher(Application):
     def run(self):
         from media import Media
         for f in self.files:
-            Media(f).fetch_remote_subtitles_and_save(sub_savedir=self.savedir)
+            Media(f).fetch_remote_subtitles(sub_savedir=self.savedir)
             
 class Player(Application):
     def __init__(self, args):
@@ -83,13 +83,12 @@ class Player(Application):
             self.__run_playlist()
 
     def __run_playlist(self):
-        import threading
+        import threading, time
         # Use a separate thread to reduce the noticeable lag when finding
         # episodes in a big directory.
         def generate_playlist(lock):
-            import time
-            time.sleep(1.5)
             from aux import find_more_episodes
+            time.sleep(1.5)
             with lock:
                 self.playlist += find_more_episodes(self.__playlist_seed)
         playlist_lock = threading.Lock()
@@ -99,20 +98,19 @@ class Player(Application):
 
         # Watchdog thread
         def watch(media):
-            if media.is_video():
-                media.fetch_remote_subtitles_and_save(load_in_mplayer=True)
+            # wait for media setting up
+            time.sleep(3.0)
+            media.fetch_if_no_local_subtitles()
         from media import Media
         while self.playlist:
             with playlist_lock:
                 f = self.playlist.pop(0)
             m = Media(f)
-            # TODO: move m.prepare into mplayer.play(m)
-            m.prepare_mplayer_args()
             watch_thread = threading.Thread(target=watch, args=(m,))
             watch_thread.daemon = True
             watch_thread.start()
 
-            singleton.mplayer.play(m)
+            m.play()
             if singleton.mplayer.last_exit_status == 'Quit':
                 break
 

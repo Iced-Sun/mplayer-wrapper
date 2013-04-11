@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 23:00:05 by subi>
+# Time-stamp: <2013-04-11 23:11:43 by subi>
 
 from __future__ import unicode_literals
 
@@ -102,7 +102,7 @@ class MPlayerContext(defaultdict):
                     self['ass'] = False
 
 class MPlayerFifo(object):
-    '''MPlayerFifo will maintain a FIFO for IPC with mplayer.
+    '''MPlayerFifo maintains a FIFO for IPC with mplayer.
     '''
     def send(self, s):
         if self.args:
@@ -146,6 +146,7 @@ class MPlayer(object):
             self.__process = None
 
             self.__init_args(args)
+            self.__set_default_args()
             self.__set_cmdline_aspect()
 
     def __del__(self):
@@ -192,6 +193,10 @@ class MPlayer(object):
         else:
             self.__extra_args.append('-noass')
 
+    def __set_default_args(self):
+        config.CMDLINE_ARGS=self.__cmdline_args
+        config.VIDEO_EXTRA_ARGS=self.__extra_args
+        
     def __set_cmdline_aspect(self):
         DAR = None
         from fractions import Fraction
@@ -207,7 +212,7 @@ class MPlayer(object):
             pass
         log_debug('CMDLINE_ASPECT is set to {}'.format(DAR))
         config.CMDLINE_ASPECT = DAR
-            
+
     def send(self, cmd):
         if self.__process != None:
             self.__fifo.send(cmd)
@@ -218,12 +223,8 @@ class MPlayer(object):
         output = subprocess.Popen(args,stdout=subprocess.PIPE,stderr=DEVNULL).communicate()[0]
         return '\n'.join([l for l in fsdecode(output).splitlines() if l.startswith('ID_')])
     
-    def play(self, media=None):
-        args = [ self.__context['path'] ] + self.__cmdline_args
-        if media:
-            args += media.mplayer_args()
-            if media.is_video():
-                args += self.__extra_args
+    def play(self, args=[]):
+        args = [ self.__context['path'] ] + self.__cmdline_args + args
         log_debug('\n'+' '.join(args))
         if not config.DRY_RUN:
             self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)

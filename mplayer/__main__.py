@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 17:56:20 by subi>
+# Time-stamp: <2013-04-11 18:18:39 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -92,7 +92,7 @@ class Player(Application):
 
         self.playlist = self.args['file'][:]
         if self.args['invalid']:
-            logging.info('Unknown option(s) "' + ' '.join(self.args['invalid']) + '" are ignored.')
+            log_info('Unknown option(s) "' + ' '.join(self.args['invalid']) + '" are ignored.')
 
     def run(self):
         if not self.playlist:
@@ -160,3 +160,4 @@ if __name__ == '__main__':
             app = Application
 
         app(args).run()
+

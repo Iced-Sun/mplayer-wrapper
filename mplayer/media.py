@@ -2,14 +2,13 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 17:58:31 by subi>
+# Time-stamp: <2013-04-11 18:06:32 by subi>
 
 from __future__ import unicode_literals
 import hashlib
 from collections import defaultdict
 
 from global_setting import *
-from aux import log_debug
 from sub import fetch_subtitle
 
 class Media(object):

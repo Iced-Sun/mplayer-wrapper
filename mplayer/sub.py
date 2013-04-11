@@ -2,12 +2,11 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 18:04:15 by subi>
+# Time-stamp: <2013-04-11 18:07:31 by subi>
 
 from __future__ import unicode_literals
 
 from global_setting import config
-from aux import log_debug, log_info
 
 # interface
 def fetch_subtitle(media_path, media_shash, save_dir=None):
@@ -23,7 +22,7 @@ def fetch_subtitle(media_path, media_shash, save_dir=None):
     
 # implementation
 from charset import guess_locale_and_convert
-import os,hashlib,logging,time,io
+import hashlib,time,io
 
 def save_to_disk(subtitles, filepath, save_dir):
     prefix,_ = os.path.splitext(filepath)

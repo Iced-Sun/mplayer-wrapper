@@ -2,13 +2,12 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 23:34:39 by subi>
+# Time-stamp: <2013-04-11 18:21:17 by subi>
 
+# A standalone module for auxiliary functions.
 from __future__ import unicode_literals
 from __future__ import print_function
 import os,sys
-
-from global_setting import config
 
 def which(prog):
     paths = [''] if os.path.isabs(prog) else os.environ['PATH'].split(os.pathsep)
@@ -18,30 +17,27 @@ def which(prog):
           return fullpath
     return None
 
-def log_debug(s):
-    if config.DEBUG:
-        print(fsencode(s),file=sys.stderr)
-        
-def log_info(s):
+def log(s):
     print(fsencode(s),file=sys.stderr)
-    
-def fsencode(stream):
-    if sys.hexversion < 0x03000000:
+
+if sys.hexversion < 0x03000000:
+    def fsencode(stream):
         if isinstance(stream, unicode):
             stream = stream.encode(sys.getfilesystemencoding(),'ignore')
-    else:
-        if isinstance(stream, str):
-            stream = os.fsencode(stream)
-    return stream
-
-def fsdecode(stream):
-    if sys.hexversion < 0x03000000:
+        return stream
+    def fsdecode(stream):
         if isinstance(stream, str):
             stream = stream.decode(sys.getfilesystemencoding(),'ignore')
-    else:
+        return stream
+else:
+    def fsencode(stream):
+        if isinstance(stream, str):
+            stream = os.fsencode(stream)
+        return stream
+    def fsdecode(stream):
         if isinstance(stream, bytes):
             stream = os.fsdecode(stream)
-    return stream
+        return stream
 
 def find_more_episodes(filepath):
     '''Try to find some following episodes/parts.
@@ -96,6 +92,5 @@ def find_more_episodes(filepath):
     return results
 
 if __name__ == '__main__':
-    import sys
     if len(sys.argv) != 1:
         print('\n'.join(find_more_episodes(fsdecode(sys.argv[1]))))

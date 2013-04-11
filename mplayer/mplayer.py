@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 17:57:23 by subi>
+# Time-stamp: <2013-04-11 18:15:47 by subi>
 
 from __future__ import unicode_literals
 
-from aux import which, fsencode, fsdecode, log_debug
+from aux import which, fsencode, fsdecode
 from global_setting import *
 
 import subprocess,hashlib,json
@@ -106,11 +106,11 @@ class MPlayerFifo(object):
     '''
     def send(self, s):
         if self.args:
-            logging.debug('Sending message "{0}" to {1}...'.format(s, self.__path))
+            log_debug('Sending message "{0}" to {1}...'.format(s, self.__path))
             with open(self.__path,'w') as f:
                 f.write(fsencode(s+'\n'))
         else:
-            logging.info('"{0}" cannot be sent to the non-existing {1}.'.format(s, self.__path))
+            log_info('"{0}" cannot be sent to the non-existing {1}.'.format(s, self.__path))
     
     def __init__(self):
         # can't use __del__() to release resource because MPlayerFifo is used
@@ -132,7 +132,7 @@ class MPlayerFifo(object):
             atexit.register(lambda f: os.unlink(f), self.__path)
             self.args = '-input file={0}'.format(self.__path).split()
         except OSError as e:
-            logging.info(e)
+            log_info(e)
 
 class MPlayer(object):
     last_timestamp = 0.0

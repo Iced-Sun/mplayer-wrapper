@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 18:21:17 by subi>
+# Time-stamp: <2013-04-11 18:33:53 by subi>
 
 # A standalone module for auxiliary functions.
 from __future__ import unicode_literals
@@ -85,7 +85,7 @@ def find_more_episodes(filepath):
     results = []
     for i,f in enumerate(files[1:]):
         a, b = strip_to_int(f,prefix), strip_to_int(files[i],prefix)
-        if b>0 and a-b>1:
+        if b>=0 and a-b>=1 and a-b<=2:
             results.append(os.path.join(pdir,f))
         else:
             break

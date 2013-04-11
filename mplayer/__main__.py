@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 01:18:25 by subi>
+# Time-stamp: <2013-04-11 17:56:20 by subi>
 #
 # mplayer-wrapper is an MPlayer frontend, trying to be a transparent interface.
 # It is convenient to rename the script to "mplayer" and place it in your $PATH
@@ -22,11 +22,13 @@
 # * "not compiled in option"
 # * detect the language in embedded subtitles, which is guaranteed to be utf8
 # * use ffprobe for better(?) metainfo detection?
+# * use logging, defaultdict wisely
 
 from __future__ import unicode_literals
 import os,sys
+from collections import defaultdict
 
-from global_setting import config
+from global_setting import *
 
 ### Application classes
 class Application(object):
@@ -75,7 +77,7 @@ class Player(Application):
         self.args = defaultdict(list)
 
         from mplayer import MPlayer
-        config['mplayer'] = MPlayer(args)
+        singleton.mplayer = MPlayer(args)
 
         # parse the left args
         while args:
@@ -114,8 +116,8 @@ class Player(Application):
                 watch_thread.daemon = True
                 watch_thread.start()
 
-                config['mplayer'].play(m)
-                if config['mplayer'].last_exit_status == 'Quit':
+                singleton.mplayer.play(m)
+                if singleton.mplayer.last_exit_status == 'Quit':
                     break
 
                 playlist_thread.join()

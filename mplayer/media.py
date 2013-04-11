@@ -2,14 +2,15 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 17:20:11 by subi>
+# Time-stamp: <2013-04-11 17:58:31 by subi>
 
 from __future__ import unicode_literals
-import os,hashlib
+import hashlib
+from collections import defaultdict
 
 from global_setting import *
+from aux import log_debug
 from sub import fetch_subtitle
-from mplayer import MPlayerContext
 
 class Media(object):
     def is_video(self):
@@ -23,7 +24,7 @@ class Media(object):
         self.__raw_info['mplayer'] = defaultdict(list)
         raw = self.__raw_info['mplayer']
 
-        for l in MPlayerContext().identify(self.args).splitlines():
+        for l in singleton.mplayer.identify(self.args).splitlines():
             k,_,v = l.partition('=')
             raw[k].append(v)
             
@@ -36,7 +37,7 @@ class Media(object):
             w = int(raw['ID_VIDEO_WIDTH'][0])
             h = int(raw['ID_VIDEO_HEIGHT'][0])
             DAR_advice = float(raw['ID_VIDEO_ASPECT'][0]) if raw['ID_VIDEO_ASPECT'] else 0.0
-            DAR_force = config['cmdline_aspect']
+            DAR_force = config.CMDLINE_ASPECT
 
             # record info
             info['width'], info['height'] = w, h
@@ -60,7 +61,7 @@ class Media(object):
                 info['subtitle']['embed'] += raw['ID_SID_{0}_LANG'.format(i)]
         if raw['ID_FILE_SUB_ID']:
             info['subtitle']['external'] = raw['ID_FILE_SUB_FILENAME']
-            logging.debug('Converting the external subtitles to UTF-8...')
+            log_debug('Converting the external subtitles to UTF-8...')
             from charset import guess_locale_and_convert
             for subfile in raw['ID_FILE_SUB_FILENAME']:
                 # open in binary mode because we don't know the encoding
@@ -122,7 +123,7 @@ class Media(object):
                 info['shash'] = ';'.join([(f.seek(s), hashlib.md5(f.read(4096)).hexdigest())[1] for s in (lambda l:[4096, l/3*2, l/3, l-8192])(sz)])
 
     def __del__(self):
-        if not config['debug']:
+        if not config.DEBUG:
             return
         info = self.__info
         log_items = ['Media.__del__() ---> Media info:',
@@ -133,5 +134,5 @@ class Media(object):
                              .format(info['width'], info['height'],
                                      '{0.numerator}:{0.denominator}'.format(info['PAR']),
                                      '{0.numerator}:{0.denominator}'.format(info['DAR'])))
-        logging.debug('\n'.join(log_items))
+        log_debug('\n'.join(log_items))
 

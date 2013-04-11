@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 01:20:54 by subi>
+# Time-stamp: <2013-04-11 17:57:23 by subi>
 
 from __future__ import unicode_literals
 
@@ -193,6 +193,7 @@ class MPlayer(object):
 
     def __set_cmdline_aspect(self):
         DAR = None
+        from fractions import Fraction
         if '-aspect' in self.__cmdline_args:
             s = self.__cmdline_args[self.__cmdline_args.index('-aspect')+1]
             if ':' in s:
@@ -221,9 +222,9 @@ class MPlayer(object):
         if media:
             args += media.mplayer_args()
             if media.is_video():
-                args += self.__supplement_args
-        logging.debug('\n'+' '.join(args))
-        if not config['dry-run']:
+                args += self.__extra_args
+        log_debug('\n'+' '.join(args))
+        if not config.DRY_RUN:
             self.__process = subprocess.Popen(args, stdin=sys.stdin, stdout=subprocess.PIPE, stderr=None)
             self.__tee()
 
@@ -270,8 +271,8 @@ class MPlayer(object):
             f.write(l)
         f.flush()
 
-        logging.debug('Last timestamp: {0}'.format(self.last_timestamp))
-        logging.debug('Last exit status: {0}'.format(self.last_exit_status))
+        log_debug('Last timestamp: {0}'.format(self.last_timestamp))
+        log_debug('Last exit status: {0}'.format(self.last_exit_status))
         self.__process = None
 
 if __name__ == '__main__':

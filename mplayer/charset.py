@@ -2,10 +2,29 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-10 00:46:24 by subi>
+# Time-stamp: <2013-04-13 02:12:42 by subi>
 
 from __future__ import unicode_literals
 
+def guess_utf8_lang(stream):
+    # TODO: prepare sample -> function
+    
+    # prepare the sample
+    # filter out ASCII as much as possible by the heuristic that a \x00-\x7F
+    # byte that following \x80-\xFF is not ASCII.
+    pattern = b'(?<![\x80-\xFE])' + Charset.re('ascii')
+    sample = filter_out(stream, pattern)
+
+    if len(sample)>2048:
+        sample = sample[0:2048]
+
+    # the return value is (ascii, cjk, non-cjk)
+    if interprete_stream(sample, 'utf8_cjk')[1] > len(sample)*0.1:
+        return 'chn'
+    else:
+        # TODO: what about other languages?
+        return 'eng'
+    
 # interface
 def guess_locale_and_convert(stream):
     enc,lang = guess_locale(stream)
@@ -17,6 +36,9 @@ def guess_locale_and_convert(stream):
     if not enc in ['utf_8', 'ascii']:
         stream = stream.decode(enc,'ignore').encode('utf_8')
 
+    if lang == 'und':
+        lang = guess_utf8_lang(stream)
+        
     return enc,lang,stream
 
 # implementation
@@ -42,7 +64,7 @@ class Charset(object):
                     b'[\xAA-\xAF][\xA1-\xFE]',              # user-defined
                     b'[\xF8-\xFE][\xA1-\xFE]',              # user-defined
                     b'[\xA1-\xA7][\x40-\x7E\x80-\xA0]',     # user-defined
-                    )
+    )
     codec['gb2312'] = codec['gbk'][0:2]
 
     # http://www.cns11643.gov.tw/AIDB/encodings.do#encode4
@@ -56,7 +78,7 @@ class Charset(object):
                      b'[\xFA-\xFE][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第一段
                      b'[\x8E-\xA0][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第二段
                      b'[\x81-\x8D][\x40-\x7E\xA1-\xFE]',                          # 使用者造字第三段
-                     )
+    )
 
     # http://www.w3.org/International/questions/qa-forms-utf-8
     codec['utf_8'] = (b'[\xC2-\xDF][\x80-\xBF]',            # non-overlong 2-byte
@@ -66,8 +88,31 @@ class Charset(object):
                       b'\xF0[\x90-\xBF][\x80-\xBF]{2}',     # planes 1-3
                       b'[\xF1-\xF3][\x80-\xBF]{3}',         # planes 4-15
                       b'\xF4[\x80-\x8F][\x80-\xBF]{2}',     # plane 16
-                      )
+    )
 
+    # http://en.wikipedia.org/wiki/Plane_(Unicode)
+    # http://en.wikipedia.org/wiki/CJK_Unified_Ideographs
+    codec['cjk'] = (b'[\x4E-\x9F][\x00-\xFF]',                    # CJK Unified Ideographs
+                    b'[\x34-\x4C][\x00-\xFF]|\x4D[\x00-\xBF]',    # CJK Unified Ideographs Extension A
+                    b'[\x200-\x2A5][\x00-\xFF]|\x2A6[\x00-\xDF]', # CJK Unified Ideographs Extension B
+                    b'[\x2A7-\x2B6][\x00-\xFF]|\x2B7[\x00-\x3F]', # CJK Unified Ideographs Extension C
+                    b'\x2B7[\x40-\xFF]|\x2B8[\x00-\x1F]',         # CJK Unified Ideographs Extension D
+                    b'[\xF9-\xFA][\x00-\xFF]',                    # CJK Compatibility Ideographs
+                    b'\x30[\x00-\x3F]',                           # CJK Symbols and Punctuation
+                    b'\xFF[\x00-\xEF]',                           # Halfwidth and Fullwidth Forms
+    )
+
+    # CJK Unified Ideographs without Extensions contains 20,941 characters,
+    # which is sufficient from a practical view for subtitles.
+    #
+    # Also include CJK Compatibility Ideographs, CJK Symbols and Punctuation
+    # and Halfwidth and Fullwidth Forms.
+    codec['utf8_cjk'] = (b'\xE4[\xB8-\xBF][\x80-\xBF]|[\xE5-\xE9][\x80-\xBF]{2}',   # E4B880-E9BFBF
+                         b'\xEF[\xA4-\xAB][\x80-\xBF]',                             # EFA480-EFABBF
+                         b'\xE3\x80[\x80-\xBF]',                                    # E38080-E380BF
+                         b'\xEF[\xBC-\xBE][\x80-\xBF]|\xEF\xBF[\x80-\xAF]',         # EFBC80-EFBFAF
+                         )
+    
     @staticmethod
     def re(enc, with_ascii=True):
         if with_ascii and not enc == 'ascii':
@@ -91,8 +136,8 @@ def interprete_stream(stream, enc):
     Return: (#ASCII, #ENC, #OTHER)
     '''
     interpretable = filter_in(stream, Charset.re(enc))
-    standalone_ascii = filter_out(interpretable, Charset.re(enc,False))
-    
+    standalone_ascii = filter_out(interpretable, Charset.re(enc,with_ascii=False))
+
     return len(standalone_ascii), len(interpretable)-len(standalone_ascii), len(stream)-len(interpretable)
 
 def guess_locale(stream, naive=True):
@@ -113,6 +158,7 @@ def guess_locale(stream, naive=True):
     # true when having less than 0.5% (~10) bytes cannot be interpreted
     threshold = int(len(sample) * .005)
     if interprete_stream(sample, 'utf_8')[2] <= threshold:
+        # TODO: guess_lang here
         return 'utf_8','und'
     elif naive:
         # In the particular context of subtitles, traditional Chinese is more
@@ -144,4 +190,6 @@ if __name__ == '__main__':
     if len(sys.argv) != 1:
         for path in sys.argv[1:]:
             with open(path,'rb') as f:
-                print(path,guess_locale(f.read()))
+                enc, lang, stream = guess_locale_and_convert(f.read())
+                print(path, enc, lang)
+

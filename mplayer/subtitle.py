@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-12 00:49:19 by subi>
+# Time-stamp: <2013-04-16 21:15:32 by subi>
 
 from __future__ import unicode_literals
+import urllib2
 
 from global_setting import *
 
@@ -105,11 +106,37 @@ def parse_shooter_package(fileobj):
     return subtitles
 
 def fetch_shooter(filepath,filehash):
+    if config.DRY_RUN:
+        log_info('fetch_shooter() ---> Dry-running:\n Fetching subtitles for {0}.'.format(filepath))
+        return None
+
+    # fetch
+    tries = [2, 10, 30, 60, 120]
+    for i, t in enumerate(tries):
+        log_debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(tries)+1))
+        time.sleep(t)
+
+        req = prepare_request(filepath, filehash)
+        
+        try:
+            singleton.get_mplayer().send('osd_show_text "正在查询字幕..." 5000')
+            response = urllib2.urlopen(req)
+        except StandardError as e:
+            singleton.get_mplayer().send('osd_show_text "查询字幕失败." 3000')
+            log_debug(e)
+        else:
+            fetched_subtitles = parse_shooter_package(response)
+            response.close()
+            if fetched_subtitles:
+                break
+
+    return fetched_subtitles
+
+def prepare_request(filepath, filehash):
     import httplib
     schemas = ['http', 'https'] if hasattr(httplib, 'HTTPS') else ['http']
     servers = ['www', 'splayer', 'svplayer'] + ['splayer'+str(i) for i in range(1,13)]
     splayer_rev = 2437 # as of 2012-07-02
-    tries = [2, 10, 30, 60, 120]
 
     # generate data for submission
     # shooter.cn uses UTF-8.
@@ -129,42 +156,20 @@ def fetch_shooter(filepath,filehash):
                     '{2}\n'.format(boundary, *d) for d in items]
                    + ['--' + boundary + '--'])
 
-    if config.DRY_RUN:
-        log_info('fetch_shooter() ---> Dry-running:\n Fetching subtitles for {0}.'.format(filepath))
-        return None
-        
-    # fetch
-    import urllib2
-    for i, t in enumerate(tries):
-        log_debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(tries)+1))
-        time.sleep(t)
+    url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(schemas), random.choice(servers))
 
-        url = '{0}://{1}.shooter.cn/api/subapi.php'.format(random.choice(schemas), random.choice(servers))
+    log_debug('Connecting server {} with the submission:\n'
+              '\n'
+              '{}\n'
+              '{}\n'.format(url,
+                            '\n'.join(['{0}:{1}'.format(*h) for h in header]),
+                            data))
 
-        # shooter.cn uses UTF-8.
-        req = urllib2.Request(url.encode('utf_8'))
-        for h in header:
-            req.add_header(h[0].encode('utf_8'), h[1].encode('utf_8'))
-        req.add_data(data.encode('utf_8'))
+    # shooter.cn uses UTF-8.
+    req = urllib2.Request(url.encode('utf_8'))
+    for h in header:
+        req.add_header(h[0].encode('utf_8'), h[1].encode('utf_8'))
+    req.add_data(data.encode('utf_8'))
 
-        log_debug('Connecting server {} with the submission:\n'
-                  '\n'
-                  '{}\n'
-                  '{}\n'.format(url,
-                                '\n'.join(['{0}:{1}'.format(*h) for h in header]),
-                                data))
-
-        try:
-            singleton.get_mplayer().send('osd_show_text "正在查询字幕..." 5000')
-            response = urllib2.urlopen(req)
-        except StandardError as e:
-            singleton.get_mplayer().send('osd_show_text "查询字幕失败." 3000')
-            log_debug(e)
-        else:
-            fetched_subtitles = parse_shooter_package(response)
-            response.close()
-            if fetched_subtitles:
-                break
-
-    return fetched_subtitles
-
+    return req
+    

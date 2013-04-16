@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-12 00:51:15 by subi>
+# Time-stamp: <2013-04-16 21:51:47 by subi>
 
 from global_setting import config, singleton
 
@@ -19,7 +19,10 @@ class Application(object):
             args.remove('--dry-run')
             config.DEBUG = True
             config.DRY_RUN = True
-
+            
+    def __del__(self):
+        singleton.clean()
+        
 class Identifier(Application):
     def __init__(self,args):
         super(Identifier, self).__init__(args)
@@ -66,9 +69,6 @@ class Player(Application):
             else:
                 self.playlist.append(s)
 
-        # save the last file for finding more episodes.
-        self.__playlist_seed = self.playlist[-1]
-
         # notify about the invalid arguments.
         if invalid:
             from global_setting import log_info
@@ -84,21 +84,21 @@ class Player(Application):
         import threading, time
         # Use a separate thread to reduce the noticeable lag when finding
         # episodes in a big directory.
-        def generate_playlist(lock):
+        def generate_playlist(playlist_seed, lock):
             from aux import find_more_episodes
             time.sleep(1.5)
             with lock:
-                self.playlist += find_more_episodes(self.__playlist_seed)
+                self.playlist += find_more_episodes(playlist_seed)
         playlist_lock = threading.Lock()
-        playlist_thread = threading.Thread(target=generate_playlist, args=(playlist_lock,))
+        playlist_thread = threading.Thread(target=generate_playlist, args=(self.playlist[-1],playlist_lock))
         playlist_thread.daemon = True
         playlist_thread.start()
 
         # Watchdog thread
-        def watch(media):
+        def watch(m):
             # wait for media setting up
             time.sleep(3.0)
-            media.fetch_if_no_local_subtitles()
+            m.fetch_if_no_local_subtitles()
         from media import Media
         while self.playlist:
             with playlist_lock:

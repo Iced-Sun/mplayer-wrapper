@@ -28,18 +28,26 @@ class singleton(object):
     __notifier = None
 
     @staticmethod
-    def create_mplayer(args=None):
+    def clean():
+        if singleton.__mplayer:
+            del singleton.__mplayer
+            
+    @staticmethod
+    def create_mplayer(args=[]):
         if singleton.__mplayer != None:
-            raise Exception('There is already a MPlayer instance.')
-        else:
-            import mplayer
-            singleton.__mplayer = mplayer.MPlayer(args)
+            log_info('There is already an MPlayer instance. Replacing by default.')
+            del singleton.__mplayer
+
+        import mplayer
+        singleton.__mplayer = mplayer.MPlayer(args)
         return singleton.__mplayer
             
     @staticmethod
     def get_mplayer():
         if singleton.__mplayer == None:
-            raise Exception('There is no MPlayer instance.')
+            log_debug('There is no MPlayer instance. Creating by default.')
+            import mplayer
+            singleton.__mplayer = mplayer.MPlayer()
         return singleton.__mplayer
 
 # logging function according to debug level

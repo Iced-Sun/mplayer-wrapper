@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 23:11:43 by subi>
+# Time-stamp: <2013-04-16 21:57:58 by subi>
 
 from __future__ import unicode_literals
 
@@ -113,25 +113,26 @@ class MPlayerFifo(object):
             log_info('"{0}" cannot be sent to the non-existing {1}.'.format(s, self.__path))
     
     def __init__(self):
-        # can't use __del__() to release resource because MPlayerFifo is used
-        # in a daemon thread and hence may result in circular reference.
-        import atexit
-
-        self.args = []
-        xdg = os.environ['XDG_RUNTIME_DIR']
-        if xdg:
-            self.__path = os.path.join(xdg, 'mplayer.fifo')
+        self.__xdg = os.environ.get('XDG_RUNTIME_DIR',None)
+        if self.__xdg:
+            self.__path = os.path.join(self.__xdg, 'mplayer.fifo')
         else:
             import tempfile
-            tmpdir = tempfile.mkdtemp()
-            atexit.register(lambda d: os.rmdir(d), tmpdir)
-            self.__path = os.path.join(tmpdir, 'mplayer.fifo')
-
+            self.__tmpdir = tempfile.mkdtemp()
+            self.__path = os.path.join(self.__tmpdir, 'mplayer.fifo')
         try:
             os.mkfifo(self.__path)
-            atexit.register(lambda f: os.unlink(f), self.__path)
-            self.args = '-input file={0}'.format(self.__path).split()
         except OSError as e:
+            log_info(e)
+
+        self.args = '-input file={0}'.format(self.__path).split()
+            
+    def __del__(self):
+        try:
+            if not self.__xdg:
+                os.rmdir(self.__tmpdir)
+            os.unlink(self.__path)
+        except StandardError as e:
             log_info(e)
 
 class MPlayer(object):

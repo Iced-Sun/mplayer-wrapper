@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 VPATH=mplayer
-HEADER=\#!/usr/bin/env python
+HEADER=\#!/usr/bin/env python2
 SOURCES=$(wildcard mplayer/*.py)
 
 all : ${SOURCES}

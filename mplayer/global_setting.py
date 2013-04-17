@@ -1,3 +1,9 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+# Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
+# Time-stamp: <2013-04-17 14:40:18 by subi>
+
 # global imports
 from __future__ import unicode_literals
 import sys,os
@@ -14,6 +20,18 @@ class config(object):
     VIDEO_EXTRA_ARGS=[]
     
     CACHE_DIR=None
+    RUNTIME_DIR=None
+
+    @staticmethod
+    def get_runtime_dir():
+        if not config.RUNTIME_DIR:
+            runtime_home = os.environ.get('XDG_RUNTIME_DIR', None)
+            if not runtime_home:
+                import tempfile, atexit
+                runtime_home = tempfile.mkdtemp()
+                atexit.register(lambda d: os.rmdir(d), runtime_home)
+            config.RUNTIME_DIR = runtime_home
+        return config.RUNTIME_DIR
 
     @staticmethod
     def get_cache_dir():

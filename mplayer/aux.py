@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-11 18:33:53 by subi>
+# Time-stamp: <2013-04-17 14:10:48 by subi>
 
 # A standalone module for auxiliary functions.
 from __future__ import unicode_literals

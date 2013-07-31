@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-16 21:15:32 by subi>
+# Time-stamp: <2013-07-31 17:26:16 by subi>
 
 from __future__ import unicode_literals
 import urllib2
 
-from global_setting import *
+from globals import *
 
 # interface
 def fetch_and_save_subtitle(path, shash, savedir=None):

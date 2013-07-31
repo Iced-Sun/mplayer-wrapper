@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-16 21:51:47 by subi>
+# Time-stamp: <2013-07-31 17:25:21 by subi>
 
-from global_setting import config, singleton
+from globals import config, singleton
 
 class Application(object):
     '''The application class should:
@@ -71,7 +71,7 @@ class Player(Application):
 
         # notify about the invalid arguments.
         if invalid:
-            from global_setting import log_info
+            from globals import log_info
             log_info('Unknown option(s) "' + ' '.join(invalid) + '" are ignored.')
 
     def run(self):

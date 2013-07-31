@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-17 14:40:18 by subi>
+# Time-stamp: <2013-07-31 17:24:09 by subi>
 
 # global imports
 from __future__ import unicode_literals
@@ -71,6 +71,7 @@ class singleton(object):
 # logging function according to debug level
 def log_info(s):
     log(s)
+    
 def log_debug(s):
     if config.DEBUG:
         log(s)

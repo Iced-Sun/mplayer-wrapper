@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-17 14:10:48 by subi>
+# Time-stamp: <2013-07-31 17:22:04 by subi>
 
 # A standalone module for auxiliary functions.
 from __future__ import unicode_literals
@@ -94,3 +94,34 @@ def find_more_episodes(filepath):
 if __name__ == '__main__':
     if len(sys.argv) != 1:
         print('\n'.join(find_more_episodes(fsdecode(sys.argv[1]))))
+
+# http://stackoverflow.com/questions/4453602/how-to-find-the-mountpoint-a-file-resides-on
+def find_mount_point(path):
+    path = os.path.abspath(path)
+    while not os.path.ismount(path):
+        path = os.path.dirname(path)
+    return path
+
+# http://stackoverflow.com/questions/11648822/how-to-determine-if-file-is-remote-in-python
+def is_file_local(path):
+    pseudo_fs = ['autofs', 'cgroup', 'devpts', 'devtmpfs', 'hugetlbfs', 'mqueue', 'proc', 'rootfs', 'sysfs']
+    network_fs = ['cifs', 'smbfs', 'nfs']
+        
+    mountpoint = find_mount_point(path)
+    with open('/proc/mounts') as f:
+        for l in f.read().splitlines():
+            words = l.split()
+            if words[1] == mountpoint:
+                # skip pseudo filesystem
+                if words[2] in pseudo_fs:
+                    continue
+                if words[2] in network_fs:
+                    return False
+                elif words[2] == 'fuse':
+                    # TODO
+                    pass
+        return True
+
+if __name__ == '__main__':
+    import sys
+    print(is_file_local(sys.argv[1]))

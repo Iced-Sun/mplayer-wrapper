@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-04-17 14:36:13 by subi>
+# Time-stamp: <2013-08-01 18:56:17 by subi>
 
 from __future__ import unicode_literals
 
 from aux import which, fsencode, fsdecode
-from global_setting import *
+from globals import *
 
 import subprocess,hashlib,json
 try:

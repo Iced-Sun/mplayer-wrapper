@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-07-31 17:26:16 by subi>
+# Time-stamp: <2013-08-01 18:11:36 by subi>
 
 from __future__ import unicode_literals
 import urllib2
@@ -111,6 +111,7 @@ def fetch_shooter(filepath,filehash):
         return None
 
     # fetch
+    fetched_subtitles = []
     tries = [2, 10, 30, 60, 120]
     for i, t in enumerate(tries):
         log_debug('Wait for {0}s to reconnect (Try {1} of {2})...'.format(t,i+1,len(tries)+1))

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-07-31 17:25:21 by subi>
+# Time-stamp: <2013-08-01 18:34:10 by subi>
 
 from globals import config, singleton
 

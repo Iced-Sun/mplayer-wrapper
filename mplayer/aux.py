@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-07-31 17:22:04 by subi>
+# Time-stamp: <2013-08-26 00:13:16 by subi>
 
 # A standalone module for auxiliary functions.
 from __future__ import unicode_literals
@@ -39,6 +39,9 @@ else:
             stream = os.fsdecode(stream)
         return stream
 
+#def notify():
+#    try import 
+    
 def find_more_episodes(filepath):
     '''Try to find some following episodes/parts.
     '''
@@ -91,9 +94,6 @@ def find_more_episodes(filepath):
             break
     return results
 
-if __name__ == '__main__':
-    if len(sys.argv) != 1:
-        print('\n'.join(find_more_episodes(fsdecode(sys.argv[1]))))
 
 # http://stackoverflow.com/questions/4453602/how-to-find-the-mountpoint-a-file-resides-on
 def find_mount_point(path):
@@ -102,6 +102,7 @@ def find_mount_point(path):
         path = os.path.dirname(path)
     return path
 
+# TODO: cache for non-local files
 # http://stackoverflow.com/questions/11648822/how-to-determine-if-file-is-remote-in-python
 def is_file_local(path):
     pseudo_fs = ['autofs', 'cgroup', 'devpts', 'devtmpfs', 'hugetlbfs', 'mqueue', 'proc', 'rootfs', 'sysfs']
@@ -123,5 +124,6 @@ def is_file_local(path):
         return True
 
 if __name__ == '__main__':
-    import sys
-    print(is_file_local(sys.argv[1]))
+    if len(sys.argv) != 1:
+        print('\n'.join(find_more_episodes(fsdecode(sys.argv[1]))))
+#        print(is_file_local(sys.argv[1]))

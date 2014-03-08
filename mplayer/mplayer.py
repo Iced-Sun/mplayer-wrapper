@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Copyright 2010-2013 Bing Sun <subi.the.dream.walker@gmail.com>
-# Time-stamp: <2013-08-01 18:56:17 by subi>
+# Time-stamp: <2013-08-26 04:14:19 by subi>
 
 from __future__ import unicode_literals
 
@@ -16,6 +16,104 @@ except ImportError:
     DEVNULL = open(os.devnull, 'wb')
 from collections import defaultdict
 
+class PlayerBackend(object):
+    # und, mpv, mp, mp2
+    backend = 'und'
+    
+    @classmethod
+    def get_backend(cls):
+        return cls.backend
+
+    def __init__(self):
+        self.__path = None
+        self.__context = defaultlist(bool)
+        self.__detect_backend()
+
+    def __detect_backend(self):
+        check_list = ['/opt/bin/mpv','/usr/local/bin/mpv','/usr/bin/mpv',
+                      '/opt/bin/mplayer','/usr/local/bin/mplayer','/usr/bin/mplayer']
+
+        for p in check_list:
+            if which(p):
+                self.__path = p
+                break
+
+    def __init_context(self):
+        # no mplayer binary presents
+        if not self.__path:
+            return
+
+        cache_file = os.path.join(config.get_cache_dir(), 'info')
+        try:
+            self.__load_context(cache_file)
+        except StandardError as e:
+            log_debug('Load context from {} failed because: \n  {}'.format(cache_file, e))
+
+        if not self.__context['option']:
+            self.__rebuild_context()
+            
+            try:
+                if not os.path.exists(config.get_cache_dir()):
+                    os.mkdir(config.get_cache_dir(),0o700)
+                with open(cache_file,'w') as f:
+                    json.dump(self, f)
+            except StandardError as e:
+                log_debug('Save context to {} failed because:\n  {}'.format(cache_file, e))
+
+    def __load_context(self, cache_file):
+        with open(self['path'],'rb') as f:
+            self['hash'] = hashlib.md5(f.read()).hexdigest()
+
+        with open(cache_file,'r') as f:
+            cached_context = defaultdict(bool, json.load(f))
+            # load context from cache if /usr/bin/mplayer isn't modified.
+            if cached_context['hash'] == self['hash']:
+                self['ass'] = cached_context['ass']
+                self['mplayer2'] = cached_context['mplayer2']
+                self['option'] = defaultdict(int, cached_context['option'])
+
+    def __rebuild_context(self):
+        options = fsdecode(subprocess.Popen([self['path'], '-list-options'], stdout=subprocess.PIPE).communicate()[0]).splitlines()
+
+        if options[-1].startswith('MPlayer2'):
+            self['mplayer2'] = True
+            option_end = -3
+        else:
+            option_end = -4
+
+        # collect supported options
+        self['option'] = defaultdict(int)
+        for opt in options[3:option_end]:
+            opt = opt.split()
+            name = opt[0].split(':') # don't care sub-option
+            if self['option'][name[0]]:
+                continue
+            self['option'][name[0]] = (2 if len(name)==2 or opt[1]!='Flag' else 1)
+            
+        # handle vf*/af*: mplayer reports option name as vf*/af*, which is a
+        # family of options.
+        del self['option']['af*']
+        del self['option']['vf*']
+        for extra in ['af','af-adv','af-add','af-pre','af-del','vf','vf-add','vf-pre','vf-del']:
+            self['option'][extra] = 2
+        for extra in ['af-clr','vf-clr']:
+            self['option'][extra] = 1
+
+        # it's awful to test if ass is supported.
+        self['ass'] = True
+        if not self['option']['ass']:
+            self['ass'] = False
+        else:
+            libass_path = None
+            for l in fsdecode(subprocess.check_output(['ldd',self['path']])).splitlines():
+                if 'libass' in l:
+                    libass_path = l.split()[2]
+            if not libass_path:
+                self['ass'] = False
+            else:
+                if not 'libfontconfig' in fsdecode(subprocess.check_output(['ldd',libass_path])):
+                    self['ass'] = False
+                
 class MPlayerContext(defaultdict):
     def __init__(self):
         super(MPlayerContext,self).__init__(bool)
